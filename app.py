@@ -109,7 +109,7 @@ if opcao == "Painel de Saldos":
                 st.text_input("Cargo do Emissor", value=cargo_responsavel, disabled=True)
             else:
                 nome_responsavel = st.text_input("Nome Completo do Emissor").strip().upper()
-                cargo_responsavel = st.selectbox("Cargo do Emissor", ["Gerente de Organização Escolar", "Agente de Organização Escolar", "Diretor de Escola", "Diretor Escolar])
+                cargo_responsavel = st.selectbox("Cargo do Emissor", ["Gerente de Organização Escolar", "Agente de Organização Escolar", "Diretor de Escola", "Diretor Escolar"])
         with col2:
             servidores_ativos = df_servidores[df_servidores['Status'] == 'Ativo']['Nome'].unique().tolist()
             if servidores_ativos:
