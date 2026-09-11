@@ -190,3 +190,10 @@ elif opcao == "Ajustes do Sistema ⚙️":
             st.rerun()
     elif senha != "":
         st.error("Senha incorreta. Acesso negado.")
+# 6. NFORMAÇÕES DE VERSÃO E AUTORIA (RODAPÉ DA BARRA LATERAL)
+st.sidebar.markdown("---")
+st.sidebar.caption("🌐 Informações do Sistema")
+st.sidebar.caption("• Versão: 1.0.0 (Estável)")
+st.sidebar.caption("• Ano de Lançamento: 2026")
+st.sidebar.caption("• Idealização e Gestão: Jacques Bras da Silva")
+st.sidebar.caption("• Unidade: E.E. Clovis de Lucca")
