@@ -13,7 +13,7 @@ if not st.session_state.autenticado:
     st.markdown("<h2 style='text-align: center;'>🔒 Acesso Restrito - E.E. Clovis de Lucca</h2>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: gray;'>Este sistema contém dados pessoais protegidos pela LGPD. Insira a chave de segurança escolar.</p>", unsafe_allow_html=True)
     
-    col_l, col_c, col_r = st.columns([1, 2, 1])
+    col_l, col_c, col_r = st.columns()
     with col_c:
         with st.form("Formulário de Login"):
             chave_escola = st.text_input("Chave de Acesso Escolar", type="password")
@@ -151,7 +151,8 @@ elif opcao == "Lançar Declaração (Crédito)":
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor", func_opcoes)
         cpf_func = ativos[ativos['Nome'] == func]['CPF'].values[0]
-        data_e = st.date_input("Data da Eleição")
+        # ADICIONADO: format="DD/MM/YYYY" para exibir em formato brasileiro na tela
+        data_e = st.date_input("Data da Eleição", format="DD/MM/YYYY")
         qtd = st.selectbox("Dias de Direito", [2, 4])
         if st.button("Gravar Crédito"):
             data_formatada = data_e.strftime("%d/%m/%Y")
@@ -169,7 +170,8 @@ elif opcao == "Registrar Folga (Débito)":
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor que está tirando folga hoje", func_opcoes)
         cpf_func = ativos[ativos['Nome'] == func]['CPF'].values
-        data_f = st.date_input("Data do dia da folga gozada")
+        # ADICIONADO: format="DD/MM/YYYY" para exibir em formato brasileiro na tela
+        data_f = st.date_input("Data do dia da folga gozada", format="DD/MM/YYYY")
         if st.button("Confirmar Baixa de 1 Dia"):
             indices = df_declaracoes[(df_declaracoes['CPF'] == cpf_func) & (df_declaracoes['Saldo'] > 0)].index
             if len(indices) > 0:
@@ -183,7 +185,8 @@ elif opcao == "Registrar Folga (Débito)":
                 st.rerun()
             else:
                 st.error("Este servidor não possui saldo disponível.")
-                # 5. AJUSTES DO SISTEMA
+
+# 5. AJUSTES DO SISTEMA
 elif opcao == "Ajustes do Sistema ⚙️":
     st.subheader("🛠️ Área Administrativa (Edição de Lançamentos)")
     senha = st.text_input("Digite a senha master para liberar as tabelas", type="password")
@@ -203,7 +206,6 @@ elif opcao == "Ajustes do Sistema ⚙️":
     elif senha != "":
         st.error("Senha incorreta. Acesso negado.")
 
-# --- INFORMAÇÕES DE VERSÃO E AUTORIA (RODAPÉ DA BARRA LATERAL UNIFICADO) ---
 st.sidebar.markdown("---")
 st.sidebar.caption("🌐 **Informações do Sistema**")
 st.sidebar.caption("• **Versão:** 1.1.0 (LGPD Protegida)")
