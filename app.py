@@ -143,7 +143,7 @@ elif opcao == "Gerenciar Servidores":
                 st.rerun()
                 
 # 3. LANÇAR CRÉDITO
-elif opcao == "Lançar Declaração (Crédito)":
+elif opcao == "Lançar DeclARAÇÃO (Crédito)":
     st.subheader("➕ Entrada de Novas Declarações")
     ativos = df_servidores[df_servidores['Status'] == 'Ativo']
     if ativos.empty:
@@ -152,8 +152,8 @@ elif opcao == "Lançar Declaração (Crédito)":
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor", func_opcoes)
         cpf_func = ativos[ativos['Nome'] == func]['CPF'].values
-        # CORREÇÃO: Adicionado o seletor brasileiro de data e a lista com as opções [2, 4] dias
         data_e = st.date_input("Data da Eleição", format="DD/MM/YYYY")
+        # CORREÇÃO: Inseridos os números 2 e 4 na lista de opções
         qtd = st.selectbox("Dias de Direito", [2, 4])
         if st.button("Gravar Crédito"):
             data_formatada = data_e.strftime("%d/%m/%Y")
