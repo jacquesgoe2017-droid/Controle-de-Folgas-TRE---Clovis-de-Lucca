@@ -183,8 +183,7 @@ elif opcao == "Registrar Folga (Débito)":
                 st.rerun()
             else:
                 st.error("Este servidor não possui saldo disponível.")
-
-# 5. AJUSTES DO SISTEMA
+                # 5. AJUSTES DO SISTEMA
 elif opcao == "Ajustes do Sistema ⚙️":
     st.subheader("🛠️ Área Administrativa (Edição de Lançamentos)")
     senha = st.text_input("Digite a senha master para liberar as tabelas", type="password")
@@ -204,6 +203,7 @@ elif opcao == "Ajustes do Sistema ⚙️":
     elif senha != "":
         st.error("Senha incorreta. Acesso negado.")
 
+# --- INFORMAÇÕES DE VERSÃO E AUTORIA (RODAPÉ DA BARRA LATERAL UNIFICADO) ---
 st.sidebar.markdown("---")
 st.sidebar.caption("🌐 **Informações do Sistema**")
 st.sidebar.caption("• **Versão:** 1.1.0 (LGPD Protegida)")
@@ -211,11 +211,6 @@ st.sidebar.caption("• **Ano de Lançamento:** 2026")
 st.sidebar.caption("• **Idealização e Gestão:** Jacques Bras da Silva")
 st.sidebar.caption("• **Unidade:** E.E. Clovis de Lucca")
 
-if st.sidebar.button("Sair do Sistema 🔒"):
-    st.session_state.autenticado = False
-    st.rerun()
-
-
-if st.sidebar.button("Sair do Sistema 🔒"):
+if st.sidebar.button("Sair do Sistema 🔒", key="btn_sair_unico"):
     st.session_state.autenticado = False
     st.rerun()
