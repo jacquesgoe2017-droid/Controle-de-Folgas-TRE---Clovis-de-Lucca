@@ -36,7 +36,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico_creditos, nome_assinante, car
     
     style_t = ParagraphStyle('T', fontName='Helvetica-Bold', fontSize=13, leading=16, alignment=TA_CENTER)
     # Estilo menor criado especificamente para as informações de contato
-    style_e = ParagraphStyle('E', fontName='Helvetica', fontSize=10, leading=14, alignment=TA_CENTER)
+    style_e = ParagraphStyle('E', fontName='Helvetica', fontSize=8, leading=14, alignment=TA_CENTER)
     style_c = ParagraphStyle('C', fontName='Helvetica', fontSize=11, leading=17, alignment=TA_JUSTIFY)
     style_d = ParagraphStyle('D', fontName='Helvetica', fontSize=11, leading=16, alignment=TA_RIGHT)
     style_a = ParagraphStyle('A', fontName='Helvetica', fontSize=11, leading=16, alignment=TA_CENTER)
@@ -52,7 +52,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico_creditos, nome_assinante, car
     story.extend([
         Paragraph("<b>Secretaria de Estado da Educação</b>", style_t),
         Paragraph("<b>Unidade Regional de Ensino de São Bernardo do Campo</b>", style_t),
-        Paragraph("<b>E.E. Clovis de Lucca</b>", style_t),
+        Paragraph("<b><red>E.E. Clovis de Lucca</red></b>", style_t),
         Paragraph("<b>Rua dos Vianas, 1915 - Baeta Neves - S.B. Campo - SP</b>", style_e),
         Paragraph("<b>E-mail: e009124a@educacao.sp.gov.br - Fone: 11 - 4332-6372</b>", style_e),
         Spacer(1, 25),
