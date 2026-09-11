@@ -3,8 +3,35 @@ import pandas as pd
 import os
 from datetime import datetime
 
-st.set_page_config(page_title="Controle TRE - GOE", page_icon="🎟️", layout="wide")
-st.title("🎟️ Sistema Web - Controle de Folgas TRE (Método PEPS)")
+st.set_page_config(page_title="Controle TRE - GOE - EE Clovis de Lucca", page_icon="🎟️", layout="wide")
+
+# --- SISTEMA DE SEGURANÇA E PROTEÇÃO LGPD (TELA DE LOGIN) ---
+if 'autenticado' not in st.session_state:
+    st.session_state.autenticado = False
+
+if not st.session_state.autenticado:
+    st.container()
+    st.subheader("🔒 Acesso Restrito - E.E. Clovis de Lucca")
+    st.write("Este sistema contém dados pessoais protegidos pela LGPD. Para acessar, insira a chave de segurança da unidade escolar.")
+    
+    chave_escola = st.text_input("Chave de Acesso Escolar", type="password")
+    
+    if st.button("Entrar no Sistema 🔓"):
+        # VOCÊ PODE MUDAR A SENHA 'clovis2026' PARA A QUE PREFERIR AQUI ABAIXO
+        if chave_escola == "clovis2026":
+            st.session_state.autenticado = True
+            st.success("Acesso autorizado!")
+            st.rerun()
+        else:
+            st.error("Chave de segurança incorreta. Acesso negado.")
+            
+    # Rodapé de segurança mesmo na tela de login
+    st.markdown("---")
+    st.caption("⚠️ *Uso exclusivo de servidores autorizados da Gerência de Organização Escolar.*")
+    st.stop() # Interrompe o código aqui, impedindo a leitura dos dados abaixo se não estiver logado
+
+# --- A PARTIR DAQUI O SISTEMA SÓ RODA SE ESTIVER AUTENTICADO ---
+st.title("Controle de Folgas TRE - EE Clovis de Lucca")
 
 from funcoes import inicializar_bancos, salvar_dados, gerar_pdf_certidao, gerar_pdf_lista_geral
 
@@ -32,7 +59,6 @@ if opcao == "Painel de Saldos":
             })
         df_resumo = pd.DataFrame(resumo)
         
-        # AJUSTE DA NUMERAÇÃO: Força o índice da tabela a começar em 1 em vez de 0
         df_resumo.index = df_resumo.index + 1
         
         busca = st.text_input("Buscar Servidor pelo Nome ou CPF").strip().upper()
@@ -168,28 +194,6 @@ elif opcao == "Registrar Folga (Débito)":
 
 # 5. AJUSTES DO SISTEMA
 elif opcao == "Ajustes do Sistema ⚙️":
-    st.subheader("🛠️ Área Administrativa (Edição de Lançamentos)")
-    senha = st.text_input("Digite a senha master para liberar as tabelas", type="password")
-    
-    if senha == "clovis":
-        st.success("Acesso Liberado! Use o formato DD/MM/AAAA para alterar as datas.")
-        
-        config_colunas_dec = {"Data_Eleicao": st.column_config.TextColumn("Data_Eleicao")}
-        config_colunas_fol = {"Data_Folga": st.column_config.TextColumn("Data_Folga")}
-        
-        edt_s = st.data_editor(df_servidores, num_rows="dynamic", key="ed_s")
-        edt_d = st.data_editor(df_declaracoes, num_rows="dynamic", column_config=config_colunas_dec, key="ed_d")
-        edt_f = st.data_editor(df_folgas, num_rows="dynamic", column_config=config_colunas_fol, key="ed_f")
-        
-        if st.button("💾 Salvar Todas as Alterações"):
-            if not edt_s.empty:
-                edt_s['Nome'] = edt_s['Nome'].astype(str).str.upper()
-                
-            salvar_dados(edt_s, edt_d, edt_f)
-            st.success("Todos os arquivos foram updated com sucesso!")
-            st.rerun()
-    elif senha != "":
-        st.error("Senha incorreta. Acesso negado.")
 # 5. AJUSTES DO SISTEMA
 elif opcao == "Ajustes do Sistema ⚙️":
     st.subheader("🛠️ Área Administrativa (Edição de Lançamentos)")
@@ -227,4 +231,3 @@ st.sidebar.caption("• **Unidade:** E.E. Clovis de Lucca")
 if st.sidebar.button("Sair do Sistema 🔒"):
     st.session_state.autenticado = False
     st.rerun()
-
