@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 st.set_page_config(page_title="Controle TRE - GOE", page_icon="🎟️", layout="wide")
-st.title("🎟️ Sistema Web - Controle de Folgas TRE (Método PEPS)")
+st.title("Controle de Folgas TRE - EE Clovis de Lucca")
 
 from funcoes import inicializar_bancos, salvar_dados, gerar_pdf_certidao, gerar_pdf_lista_geral
 
