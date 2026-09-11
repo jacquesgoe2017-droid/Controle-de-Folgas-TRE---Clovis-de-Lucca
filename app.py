@@ -60,9 +60,9 @@ if opcao == "Painel de Saldos":
         for idx, s in df_servidores.iterrows():
             creditos_totais = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == s['CPF']]['Direito']).sum()
             saldo_atual = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == s['CPF']]['Saldo']).sum()
-            debitos_totais = df_folgas[df_folgas['CPF'] == s['CPF']].shape
+            # CORREÇÃO: Adicionado o índice [0] para extrair estritamente o número inteiro de registros
+            debitos_totais = df_folgas[df_folgas['CPF'] == s['CPF']].shape[0]
             
-            # Garante a exibição formatada do CPF no painel visual
             cpf_formatado = formatar_cpf(s['CPF'])
             resumo.append({
                 'CPF': cpf_formatado, 'Nome': s['Nome'], 'Status': s['Status'],
@@ -123,14 +123,12 @@ if opcao == "Painel de Saldos":
 elif opcao == "Gerenciar Servidores":
     st.subheader("👥 Rotatividade de Funcionários")
     with st.expander("➕ Cadastrar Novo Servidor"):
-        # Limpa letras e caracteres, pegando apenas números limpos para a validação
         n_cpf_cru = st.text_input("CPF (Digite apenas os 11 números)").strip()
         n_cpf = "".join(filter(str.isdigit, n_cpf_cru))
         n_nome = st.text_input("Nome Completo").strip().upper()
         
         if st.button("Salvar Registro"):
             if n_cpf and n_nome:
-                # TRAVA DE SEGURANÇA: Impede CPFs com menos ou mais de 11 dígitos
                 if len(n_cpf) != 11:
                     st.error("⚠️ Erro: O CPF deve conter exatamente 11 números.")
                 elif n_cpf in df_servidores['CPF'].astype(str).values:
@@ -173,7 +171,7 @@ elif opcao == "Lançar DeclARAÇÃO (Crédito)":
         qtd = st.selectbox("Dias de Direito", [2, 4])
         if st.button("Gravar Crédito"):
             data_formatada = data_e.strftime("%d/%m/%Y")
-            nova = pd.DataFrame([{'CPF': str(cpf_func), 'Data_Eleicao': data_formatada, 'Direito': int(qtd), 'Saldo': int(qtd)}])
+            nova = pd.DataFrame([{'CPF': str(cpf_func[0]), 'Data_Eleicao': data_formatada, 'Direito': int(qtd), 'Saldo': int(qtd)}])
             df_declaracoes = pd.concat([df_declaracoes, nova], ignore_index=True)
             salvar_dados(df_servidores, df_declaracoes, df_folgas)
             st.success("Crédito gravado com sucesso!")
@@ -191,12 +189,12 @@ elif opcao == "Registrar Folga (Débito)":
         data_f = st.date_input("Data do dia da folga gozada", format="DD/MM/YYYY")
         if st.button("Confirmar Baixa de 1 Dia"):
             df_declaracoes['Saldo'] = pd.to_numeric(df_declaracoes['Saldo'])
-            indices = df_declaracoes[(df_declaracoes['CPF'] == str(cpf_func)) & (df_declaracoes['Saldo'] > 0)].index
+            indices = df_declaracoes[(df_declaracoes['CPF'] == str(cpf_func[0])) & (df_declaracoes['Saldo'] > 0)].index
             if len(indices) > 0:
-                idx_alvo = indices
+                idx_alvo = indices[0]
                 df_declaracoes.at[idx_alvo, 'Saldo'] -= 1
                 data_formatada = data_f.strftime("%d/%m/%Y")
-                nova = pd.DataFrame([{'CPF': str(cpf_func), 'Data_Folga': data_formatada}])
+                nova = pd.DataFrame([{'CPF': str(cpf_func[0]), 'Data_Folga': data_formatada}])
                 df_folgas = pd.concat([df_folgas, nova], ignore_index=True)
                 salvar_dados(df_servidores, df_declaracoes, df_folgas)
                 st.success("Folga debitada do direito mais antigo!")
@@ -235,7 +233,7 @@ elif opcao == "Ajustes do Sistema ⚙️":
 
 st.sidebar.markdown("---")
 st.sidebar.caption("🌐 **Informações do Sistema**")
-st.sidebar.caption("• **Versão:** 1.1.3 (CPF Validado)")
+st.sidebar.caption("• **Versão:** 1.1.4 (Estável Definitiva)")
 st.sidebar.caption("• **Ano de Lançamento:** 2026")
 st.sidebar.caption("• **Idealização e Gestão:** Jacques Bras da Silva")
 st.sidebar.caption("• **Unidade:** E.E. Clovis de Lucca")
