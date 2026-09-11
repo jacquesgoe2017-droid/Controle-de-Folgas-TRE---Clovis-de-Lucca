@@ -6,11 +6,10 @@ from datetime import datetime
 st.set_page_config(page_title="Controle TRE - GOE", page_icon="🎟️", layout="wide")
 st.title("🎟️ Sistema Web - Controle de Folgas TRE (Método PEPS)")
 
-from funcoes import inicializar_bancos, salvar_dados, gerar_pdf_certidao
+from funcoes import inicializar_bancos, salvar_dados, gerar_pdf_certidao, gerar_pdf_lista_geral
 
 df_servidores, df_declaracoes, df_folgas = inicializar_bancos()
 
-# Padroniza os nomes existentes no banco para Maiúsculas, prevenindo cadastros antigos fora do padrão
 if not df_servidores.empty:
     df_servidores['Nome'] = df_servidores['Nome'].astype(str).str.upper()
 
@@ -37,8 +36,22 @@ if opcao == "Painel de Saldos":
             df_resumo = df_resumo[df_resumo['Nome'].str.contains(busca, case=False) | df_resumo['CPF'].str.contains(busca)]
         st.dataframe(df_resumo, use_container_width=True)
         
+        # --- NOVA SEÇÃO: EXPORTAR LISTAGEM GERAL ---
+        st.write("#### 💾 Exportar Relação de Todos os Saldos")
+        col_btn1, col_btn2, _ = st.columns([1, 1, 4])
+        
+        with col_btn1:
+            csv_data = df_resumo.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(label="📊 Baixar Lista para Excel (CSV)", data=csv_data, file_name="Lista_Saldos_TRE.csv", mime="text/csv")
+            
+        with col_btn2:
+            if st.button("🖨️ Criar Relatório em PDF"):
+                pdf_lista_path = gerar_pdf_lista_geral(df_resumo)
+                with open(pdf_lista_path, "rb") as f_lista:
+                    st.download_button(label="⬇️ Baixar Lista em PDF", data=f_lista, file_name="Relatorio_Saldos_Geral.pdf", mime="application/pdf")
+        
         st.markdown("---")
-        st.subheader("🖨️ Emitir Declaração Oficial de Saldo")
+        st.subheader("🖨️ Emitir Declaração Oficial de Saldo Individual")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -54,7 +67,7 @@ if opcao == "Painel de Saldos":
                 cargo_responsavel = st.selectbox("Cargo do Emissor", ["Gerente de Organização Escolar", "Agente de Organização Escolar", "Diretor de Escola"])
         
         with col2:
-            servidores_ativos = df_servidores[df_servidores['Status'] == 'Ativo']['Nome'].tolist()
+            servidores_ativos = df_servidores[df_servidores['Status'] == 'Ativo']['Nome'].unique().tolist()
             if servidores_ativos:
                 sel_certidao = st.selectbox("Escolha o servidor para gerar a folha em PDF", servidores_ativos)
                 cpf_certidao = df_servidores[df_servidores['Nome'] == sel_certidao]['CPF'].values[0]
@@ -67,7 +80,7 @@ if opcao == "Painel de Saldos":
                     else:
                         pdf_path = gerar_pdf_certidao(sel_certidao, cpf_certidao, saldo_certidao, historico_contrib, nome_responsavel, cargo_responsavel)
                         with open(pdf_path, "rb") as pdf_file:
-                            st.download_button(label="⬇️ Baixar Declânção para Imprimir", data=pdf_file, file_name=f"Certidao_TRE_{cpf_certidao}.pdf", mime="application/pdf")
+                            st.download_button(label="⬇️ Baixar Declaração para Imprimir", data=pdf_file, file_name=f"Certidao_TRE_{cpf_certidao}.pdf", mime="application/pdf")
             else:
                 st.warning("Nenhum funcionário ativo disponível.")
 
@@ -76,7 +89,7 @@ elif opcao == "Gerenciar Servidores":
     st.subheader("👥 Rotatividade de Funcionários")
     with st.expander("➕ Cadastrar Novo Servidor"):
         n_cpf = st.text_input("CPF (Apenas números)").strip()
-        n_nome = st.text_input("Nome Completo").strip().upper()  # Força a entrada em MAIÚSCULAS
+        n_nome = st.text_input("Nome Completo").strip().upper()
         if st.button("Salvar Registro"):
             if n_cpf and n_nome:
                 if n_cpf in df_servidores['CPF'].values:
@@ -113,10 +126,11 @@ elif opcao == "Lançar Declaração (Crédito)":
     if ativos.empty:
         st.warning("Não há funcionários ativos.")
     else:
-        func = st.selectbox("Selecione o Servidor", ativos['Nome'].tolist())
+        func_opcoes = ativos['Nome'].unique().tolist()
+        func = st.selectbox("Selecione o Servidor", func_opcoes)
         cpf_func = ativos[ativos['Nome'] == func]['CPF'].values[0]
         data_e = st.date_input("Data da Eleição")
-        qtd = st.selectbox("Dias de Direito", [2, 4])
+        qtd = st.selectbox("Dias de Direito",)
         if st.button("Gravar Crédito"):
             data_formatada = data_e.strftime("%d/%m/%Y")
             nova = pd.DataFrame([{'CPF': cpf_func, 'Data_Eleicao': data_formatada, 'Direito': int(qtd), 'Saldo': int(qtd)}])
@@ -131,7 +145,8 @@ elif opcao == "Registrar Folga (Débito)":
     if ativos.empty:
         st.warning("Não há funcionários ativos.")
     else:
-        func = st.selectbox("Selecione o Servidor", ativos['Nome'].tolist())
+        func_opcoes = ativos['Nome'].unique().tolist()
+        func = st.selectbox("Selecione o Servidor", func_opcoes)
         cpf_func = ativos[ativos['Nome'] == func]['CPF'].values[0]
         data_f = st.date_input("Data da folga gozada")
         if st.button("Confirmar Baixa de 1 Dia"):
@@ -164,7 +179,6 @@ elif opcao == "Ajustes do Sistema ⚙️":
         edt_f = st.data_editor(df_folgas, num_rows="dynamic", column_config=config_colunas_fol, key="ed_f")
         
         if st.button("💾 Salvar Todas as Alterações"):
-            # Garante que qualquer nome editado na tabela também vire maiúsculo ao salvar
             if not edt_s.empty:
                 edt_s['Nome'] = edt_s['Nome'].astype(str).str.upper()
                 
