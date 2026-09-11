@@ -30,7 +30,7 @@ if not st.session_state.autenticado:
             if botao_login:
                 if chave_escola == "clovis2026":
                     st.session_state.autenticado = True
-                    st.success("Acesso autorizado!")
+                    st.success("Acesso authorized!")
                     st.rerun()
                 else:
                     st.error("Chave de segurança incorreta. Acesso negado.")
@@ -71,13 +71,12 @@ if opcao == "Painel de Saldos":
         for idx, s in df_servidores.iterrows():
             creditos_totais = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == str(s['CPF'])]['Direito']).sum()
             saldo_atual = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == str(s['CPF'])]['Saldo']).sum()
-            debitos_totais = df_folgas[df_folgas['CPF'] == str(s['CPF'])].shape
+            debitos_totais = df_folgas[df_folgas['CPF'] == str(s['CPF'])].shape[0]
             
             cpf_formatado = formatar_cpf(s['CPF'])
-            # CORREÇÃO CRÍTICA: Extrai estritamente a contagem de linhas usando debitos_totais[0]
             resumo.append({
                 'CPF': cpf_formatado, 'Nome': s['Nome'], 'Status': s['Status'],
-                'Total Conquistado': int(creditos_totais), 'Total Usufruído': int(debitos_totais[0]), 'Saldo Disponível': int(saldo_atual)
+                'Total Conquistado': int(creditos_totais), 'Total Usufruído': int(debitos_totais), 'Saldo Disponível': int(saldo_atual)
             })
         df_resumo = pd.DataFrame(resumo)
         df_resumo.index = df_resumo.index + 1
@@ -94,7 +93,7 @@ if opcao == "Painel de Saldos":
             st.download_button(label="📊 Baixar Lista para Excel (CSV)", data=csv_data, file_name="Lista_Saldos_TRE.csv", mime="text/csv")
         with col_btn2:
             if st.button("🖨️ Criar Relatório em PDF"):
-                pdf_lista_path = photographic_lista_path = gerar_pdf_lista_geral(df_resumo)
+                pdf_lista_path = gerar_pdf_lista_geral(df_resumo)
                 with open(pdf_lista_path, "rb") as f_lista:
                     st.download_button(label="⬇️ Baixar Lista em PDF", data=f_lista, file_name="Relatorio_Saldos_Geral.pdf", mime="application/pdf")
         
@@ -128,6 +127,7 @@ if opcao == "Painel de Saldos":
                             st.download_button(label="⬇️ Baixar Declaração para Imprimir", data=pdf_file, file_name=f"Certidao_TRE_{cpf_bruto}.pdf", mime="application/pdf")
             else:
                 st.warning("Nenhum funcionário ativo disponível.")
+
 # 2. GERENCIAR SERVIDORES
 elif opcao == "Gerenciar Servidores":
     st.subheader("👥 Rotatividade de Funcionários")
@@ -164,7 +164,6 @@ elif opcao == "Gerenciar Servidores":
                 df_servidores.at[idx, 'Status'] = 'Ativo'
                 salvar_dados(df_servidores, df_declaracoes, df_folgas)
                 st.rerun()
-
 # 3. LANÇAR CRÉDITO
 elif opcao == "Lançar DeclARAÇÃO (Crédito)":
     st.subheader("➕ Entrada de Novas Declarações")
@@ -176,7 +175,8 @@ elif opcao == "Lançar DeclARAÇÃO (Crédito)":
         func = st.selectbox("Selecione o Servidor", func_opcoes)
         cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values[0]
         data_e = st.date_input("Data da Eleição", format="DD/MM/YYYY")
-        qtd = st.selectbox("Dias de Direito",)
+        # CORREÇÃO DEFINITIVA: Adicionado [2, 4] dentro da caixinha de opções
+        qtd = st.selectbox("Dias de Direito", [2, 4])
         if st.button("Gravar Crédito"):
             data_formatada = data_e.strftime("%d/%m/%Y")
             nova = pd.DataFrame([{'CPF': str(cpf_func), 'Data_Eleicao': data_formatada, 'Direito': int(qtd), 'Saldo': int(qtd)}])
@@ -241,7 +241,7 @@ elif opcao == "Ajustes do Sistema ⚙️":
 
 st.sidebar.markdown("---")
 st.sidebar.caption("🌐 **Informações do Sistema**")
-st.sidebar.caption("• **Versão:** 1.1.9 (Estável Definitiva)")
+st.sidebar.caption("• **Versão:** 1.1.9 (Estável Corrigida)")
 st.sidebar.caption("• **Ano de Lançamento:** 2026")
 st.sidebar.caption("• **Idealização e Gestão:** Jacques Bras da Silva")
 st.sidebar.caption("• **Unidade:** E.E. Clovis de Lucca")
