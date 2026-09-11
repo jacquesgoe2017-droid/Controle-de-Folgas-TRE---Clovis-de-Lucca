@@ -5,7 +5,7 @@ from datetime import datetime
 
 st.set_page_config(page_title="Controle TRE - GOE", page_icon="🎟️", layout="wide")
 
-# --- SISTEMA DE SEGURANÇA E PROTEÇÃO LGPD (TELA DE LOGIN) ---
+# --- SISTEMA DE SEGURANÇA E PROTEÇÃO LGPD (TELA DE LOGIN CORRIGIDA) ---
 if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
@@ -13,7 +13,8 @@ if not st.session_state.autenticado:
     st.markdown("<h2 style='text-align: center;'>🔒 Acesso Restrito - E.E. Clovis de Lucca</h2>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: gray;'>Este sistema contém dados pessoais protegidos pela LGPD. Insira a chave de segurança escolar.</p>", unsafe_allow_html=True)
     
-    col_l, col_c, col_r = st.columns()
+    # CORREÇÃO: Definido explicitamente o número 3 dentro da função columns
+    col_l, col_c, col_r = st.columns(3)
     with col_c:
         with st.form("Formulário de Login"):
             chave_escola = st.text_input("Chave de Acesso Escolar", type="password")
@@ -41,7 +42,7 @@ df_servidores, df_declaracoes, df_folgas = inicializar_bancos()
 if not df_servidores.empty:
     df_servidores['Nome'] = df_servidores['Nome'].astype(str).str.upper()
 
-opcao = st.sidebar.selectbox("Menu Principal", ["Painel de Saldos", "Gerenciar Servidores", "Lançar Declaração (Crédito)", "Registrar Folga (Débito)", "Ajustes do Sistema ⚙️"])
+opcao = st.sidebar.selectbox("Menu Principal", ["Painel de Saldos", "Gerenciar Servidores", "Lançar DeclARAÇÃO (Crédito)", "Registrar Folga (Débito)", "Ajustes do Sistema ⚙️"])
 
 # 1. PAINEL DE SALDOS
 if opcao == "Painel de Saldos":
@@ -151,7 +152,6 @@ elif opcao == "Lançar Declaração (Crédito)":
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor", func_opcoes)
         cpf_func = ativos[ativos['Nome'] == func]['CPF'].values[0]
-        # ADICIONADO: format="DD/MM/YYYY" para exibir em formato brasileiro na tela
         data_e = st.date_input("Data da Eleição", format="DD/MM/YYYY")
         qtd = st.selectbox("Dias de Direito", [2, 4])
         if st.button("Gravar Crédito"):
@@ -169,13 +169,12 @@ elif opcao == "Registrar Folga (Débito)":
     else:
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor que está tirando folga hoje", func_opcoes)
-        cpf_func = ativos[ativos['Nome'] == func]['CPF'].values
-        # ADICIONADO: format="DD/MM/YYYY" para exibir em formato brasileiro na tela
+        cpf_func = ativos[ativos['Nome'] == func]['CPF'].values[0]
         data_f = st.date_input("Data do dia da folga gozada", format="DD/MM/YYYY")
         if st.button("Confirmar Baixa de 1 Dia"):
             indices = df_declaracoes[(df_declaracoes['CPF'] == cpf_func) & (df_declaracoes['Saldo'] > 0)].index
             if len(indices) > 0:
-                idx_alvo = indices
+                idx_alvo = indices[0]
                 df_declaracoes.at[idx_alvo, 'Saldo'] -= 1
                 data_formatada = data_f.strftime("%d/%m/%Y")
                 nova = pd.DataFrame([{'CPF': cpf_func, 'Data_Folga': data_formatada}])
