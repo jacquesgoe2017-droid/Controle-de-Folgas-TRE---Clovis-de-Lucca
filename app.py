@@ -10,6 +10,20 @@ if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
+    # Cria uma estrutura de colunas para colocar os dois símbolos lado a lado perfeitamente centralizados
+    col_l1, col_img_esq, col_espaco, col_img_dir, col_r1 = st.columns([2, 1.2, 0.4, 1.2, 2])
+    
+    with col_img_esq:
+        # Símbolo 1: O Brasão do Estado de São Paulo fixo no topo esquerdo
+        st.image("https://saopaulo.sp.gov.br", width=95)
+        
+    with col_img_dir:
+        # Símbolo 2: O Logotipo próprio da escola no topo direito
+        if os.path.exists("logo_escola.png"):
+            st.image("logo_escola.png", width=105)
+        else:
+            st.markdown("<h2 style='margin-top: 15px;'>🏫</h2>", unsafe_allow_html=True)
+        
     st.markdown("<h2 style='text-align: center;'>🔒 Acesso Restrito - E.E. Clovis de Lucca</h2>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: gray;'>Este sistema contém dados pessoais protegidos pela LGPD. Insira a chave de segurança escolar.</p>", unsafe_allow_html=True)
     
@@ -38,7 +52,15 @@ from funcoes import inicializar_bancos, salvar_dados, gerar_pdf_certidao, gerar_
 
 df_servidores, df_declaracoes, df_folgas = inicializar_bancos()
 
-# Função auxiliar para formatar CPF dinamicamente para o padrão XXX.XXX.XXX-XX
+# EXIBE OS DOIS SÍMBOLOS LADO A LADO TAMBÉM NO TOPO DA BARRA LATERAL INTERNA
+col_side1, col_side2 = st.sidebar.columns(2)
+with col_side1:
+    st.image("https://saopaulo.sp.gov.br", width=65)
+with col_side2:
+    if os.path.exists("logo_escola.png"):
+        st.image("logo_escola.png", width=75)
+st.sidebar.markdown("---")
+
 def formatar_cpf(cpf_sujo):
     nums = "".join(filter(str.isdigit, str(cpf_sujo)))
     if len(nums) == 11:
@@ -60,7 +82,7 @@ if opcao == "Painel de Saldos":
         for idx, s in df_servidores.iterrows():
             creditos_totais = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == str(s['CPF'])]['Direito']).sum()
             saldo_atual = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == str(s['CPF'])]['Saldo']).sum()
-            debitos_totais = df_folgas[df_folgas['CPF'] == str(s['CPF'])].shape[0]
+            debitos_totais = df_folgas[df_folgas['CPF'] == str(s['CPF'])].shape
             
             cpf_formatado = formatar_cpf(s['CPF'])
             resumo.append({
@@ -103,8 +125,7 @@ if opcao == "Painel de Saldos":
             servidores_ativos = df_servidores[df_servidores['Status'] == 'Ativo']['Nome'].unique().tolist()
             if servidores_ativos:
                 sel_certidao = st.selectbox("Escolha o servidor para gerar a folha em PDF", servidores_ativos)
-                # CORREÇÃO: Pega o valor isolado [0] para evitar o erro de comparação de matrizes do pandas
-                cpf_bruto = df_servidores[df_servidores['Nome'] == sel_certidao]['CPF'].values[0]
+                cpf_bruto = df_servidores[df_servidores['Nome'] == sel_certidao]['CPF'].values
                 saldo_certidao = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == str(cpf_bruto)]['Saldo']).sum()
                 historico_contrib = df_declaracoes[df_declaracoes['CPF'] == str(cpf_bruto)]
                 if st.button("Gerar Certidão em PDF"):
@@ -117,7 +138,6 @@ if opcao == "Painel de Saldos":
                             st.download_button(label="⬇️ Baixar Declaração para Imprimir", data=pdf_file, file_name=f"Certidao_TRE_{cpf_bruto}.pdf", mime="application/pdf")
             else:
                 st.warning("Nenhum funcionário ativo disponível.")
-
 # 2. GERENCIAR SERVIDORES
 elif opcao == "Gerenciar Servidores":
     st.subheader("👥 Rotatividade de Funcionários")
@@ -125,7 +145,6 @@ elif opcao == "Gerenciar Servidores":
         n_cpf_cru = st.text_input("CPF (Digite apenas os 11 números)").strip()
         n_cpf = "".join(filter(str.isdigit, n_cpf_cru))
         n_nome = st.text_input("Nome Completo").strip().upper()
-        
         if st.button("Salvar Registro"):
             if n_cpf and n_nome:
                 if len(n_cpf) != 11:
@@ -140,7 +159,6 @@ elif opcao == "Gerenciar Servidores":
                     st.rerun()
             else:
                 st.error("Por favor, preencha todos os campos.")
-                
     st.write("### Painel de Movimentação de Status")
     for idx, row in df_servidores.iterrows():
         c1, c2, c3 = st.columns(3)
@@ -156,6 +174,7 @@ elif opcao == "Gerenciar Servidores":
                 df_servidores.at[idx, 'Status'] = 'Ativo'
                 salvar_dados(df_servidores, df_declaracoes, df_folgas)
                 st.rerun()
+
 # 3. LANÇAR CRÉDITO
 elif opcao == "Lançar DeclARAÇÃO (Crédito)":
     st.subheader("➕ Entrada de Novas Declarações")
@@ -165,9 +184,9 @@ elif opcao == "Lançar DeclARAÇÃO (Crédito)":
     else:
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor", func_opcoes)
-        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values[0]
+        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values
         data_e = st.date_input("Data da Eleição", format="DD/MM/YYYY")
-        qtd = st.selectbox("Dias de Direito", [2, 4])
+        qtd = st.selectbox("Dias de Direito",)
         if st.button("Gravar Crédito"):
             data_formatada = data_e.strftime("%d/%m/%Y")
             nova = pd.DataFrame([{'CPF': str(cpf_func), 'Data_Eleicao': data_formatada, 'Direito': int(qtd), 'Saldo': int(qtd)}])
@@ -184,13 +203,13 @@ elif opcao == "Registrar Folga (Débito)":
     else:
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor que está tirando folga hoje", func_opcoes)
-        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values[0]
+        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values
         data_f = st.date_input("Data do dia da folga gozada", format="DD/MM/YYYY")
         if st.button("Confirmar Baixa de 1 Dia"):
             df_declaracoes['Saldo'] = pd.to_numeric(df_declaracoes['Saldo'])
             indices = df_declaracoes[(df_declaracoes['CPF'] == str(cpf_func)) & (df_declaracoes['Saldo'] > 0)].index
             if len(indices) > 0:
-                idx_alvo = indices[0]
+                idx_alvo = indices
                 df_declaracoes.at[idx_alvo, 'Saldo'] -= 1
                 data_formatada = data_f.strftime("%d/%m/%Y")
                 nova = pd.DataFrame([{'CPF': str(cpf_func), 'Data_Folga': data_formatada}])
@@ -225,14 +244,14 @@ elif opcao == "Ajustes do Sistema ⚙️":
             if not edt_s.empty:
                 edt_s['Nome'] = edt_s['Nome'].astype(str).str.upper()
             salvar_dados(edt_s, edt_d, edt_f)
-            st.success("Todos os arquivos foram atualizados com sucesso!")
+            st.success("Todos os arquivos foram updated com sucesso!")
             st.rerun()
     elif senha != "":
         st.error("Senha incorreta. Acesso negado.")
 
 st.sidebar.markdown("---")
 st.sidebar.caption("🌐 **Informações do Sistema**")
-st.sidebar.caption("• **Versão:** 1.1.4 (Estável Definitiva)")
+st.sidebar.caption("• **Versão:** 1.1.7 (Duplo Símbolo Oficial)")
 st.sidebar.caption("• **Ano de Lançamento:** 2026")
 st.sidebar.caption("• **Idealização e Gestão:** Jacques Bras da Silva")
 st.sidebar.caption("• **Unidade:** E.E. Clovis de Lucca")
