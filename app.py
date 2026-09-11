@@ -58,10 +58,9 @@ if opcao == "Painel de Saldos":
     else:
         resumo = []
         for idx, s in df_servidores.iterrows():
-            creditos_totais = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == s['CPF']]['Direito']).sum()
-            saldo_atual = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == s['CPF']]['Saldo']).sum()
-            # CORREÇÃO: Adicionado o índice [0] para extrair estritamente o número inteiro de registros
-            debitos_totais = df_folgas[df_folgas['CPF'] == s['CPF']].shape[0]
+            creditos_totais = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == str(s['CPF'])]['Direito']).sum()
+            saldo_atual = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == str(s['CPF'])]['Saldo']).sum()
+            debitos_totais = df_folgas[df_folgas['CPF'] == str(s['CPF'])].shape[0]
             
             cpf_formatado = formatar_cpf(s['CPF'])
             resumo.append({
@@ -104,10 +103,10 @@ if opcao == "Painel de Saldos":
             servidores_ativos = df_servidores[df_servidores['Status'] == 'Ativo']['Nome'].unique().tolist()
             if servidores_ativos:
                 sel_certidao = st.selectbox("Escolha o servidor para gerar a folha em PDF", servidores_ativos)
-                cpf_bruto = df_servidores[df_servidores['Nome'] == sel_certidao]['CPF'].values
-                saldo_certidao = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == cpf_bruto]['Saldo']).sum()
-                historico_contrib = df_declaracoes[df_declaracoes['CPF'] == cpf_bruto]
-                
+                # CORREÇÃO: Pega o valor isolado [0] para evitar o erro de comparação de matrizes do pandas
+                cpf_bruto = df_servidores[df_servidores['Nome'] == sel_certidao]['CPF'].values[0]
+                saldo_certidao = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == str(cpf_bruto)]['Saldo']).sum()
+                historico_contrib = df_declaracoes[df_declaracoes['CPF'] == str(cpf_bruto)]
                 if st.button("Gerar Certidão em PDF"):
                     if not nome_responsavel:
                         st.error("Por favor, preencha o nome do emissor.")
@@ -166,12 +165,12 @@ elif opcao == "Lançar DeclARAÇÃO (Crédito)":
     else:
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor", func_opcoes)
-        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values
+        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values[0]
         data_e = st.date_input("Data da Eleição", format="DD/MM/YYYY")
         qtd = st.selectbox("Dias de Direito", [2, 4])
         if st.button("Gravar Crédito"):
             data_formatada = data_e.strftime("%d/%m/%Y")
-            nova = pd.DataFrame([{'CPF': str(cpf_func[0]), 'Data_Eleicao': data_formatada, 'Direito': int(qtd), 'Saldo': int(qtd)}])
+            nova = pd.DataFrame([{'CPF': str(cpf_func), 'Data_Eleicao': data_formatada, 'Direito': int(qtd), 'Saldo': int(qtd)}])
             df_declaracoes = pd.concat([df_declaracoes, nova], ignore_index=True)
             salvar_dados(df_servidores, df_declaracoes, df_folgas)
             st.success("Crédito gravado com sucesso!")
@@ -185,16 +184,16 @@ elif opcao == "Registrar Folga (Débito)":
     else:
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor que está tirando folga hoje", func_opcoes)
-        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values
+        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values[0]
         data_f = st.date_input("Data do dia da folga gozada", format="DD/MM/YYYY")
         if st.button("Confirmar Baixa de 1 Dia"):
             df_declaracoes['Saldo'] = pd.to_numeric(df_declaracoes['Saldo'])
-            indices = df_declaracoes[(df_declaracoes['CPF'] == str(cpf_func[0])) & (df_declaracoes['Saldo'] > 0)].index
+            indices = df_declaracoes[(df_declaracoes['CPF'] == str(cpf_func)) & (df_declaracoes['Saldo'] > 0)].index
             if len(indices) > 0:
                 idx_alvo = indices[0]
                 df_declaracoes.at[idx_alvo, 'Saldo'] -= 1
                 data_formatada = data_f.strftime("%d/%m/%Y")
-                nova = pd.DataFrame([{'CPF': str(cpf_func[0]), 'Data_Folga': data_formatada}])
+                nova = pd.DataFrame([{'CPF': str(cpf_func), 'Data_Folga': data_formatada}])
                 df_folgas = pd.concat([df_folgas, nova], ignore_index=True)
                 salvar_dados(df_servidores, df_declaracoes, df_folgas)
                 st.success("Folga debitada do direito mais antigo!")
