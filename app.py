@@ -31,14 +31,17 @@ if opcao == "Painel de Saldos":
                 'Total Conquistado': creditos_totais, 'Total Usufruído': debitos_totais, 'Saldo Disponível': saldo_atual
             })
         df_resumo = pd.DataFrame(resumo)
+        
+        # AJUSTE DA NUMERAÇÃO: Força o índice da tabela a começar em 1 em vez de 0
+        df_resumo.index = df_resumo.index + 1
+        
         busca = st.text_input("Buscar Servidor pelo Nome ou CPF").strip().upper()
         if busca:
             df_resumo = df_resumo[df_resumo['Nome'].str.contains(busca, case=False) | df_resumo['CPF'].str.contains(busca)]
         st.dataframe(df_resumo, use_container_width=True)
         
-        # --- NOVA SEÇÃO: EXPORTAR LISTAGEM GERAL ---
         st.write("#### 💾 Exportar Relação de Todos os Saldos")
-        col_btn1, col_btn2, _ = st.columns([1, 1, 4])
+        col_btn1, col_btn2, _ = st.columns(3)
         
         with col_btn1:
             csv_data = df_resumo.to_csv(index=False).encode('utf-8-sig')
@@ -130,7 +133,7 @@ elif opcao == "Lançar Declaração (Crédito)":
         func = st.selectbox("Selecione o Servidor", func_opcoes)
         cpf_func = ativos[ativos['Nome'] == func]['CPF'].values[0]
         data_e = st.date_input("Data da Eleição")
-        qtd = st.selectbox("Dias de Direito",)
+        qtd = st.selectbox("Dias de Direito", [2, 4])
         if st.button("Gravar Crédito"):
             data_formatada = data_e.strftime("%d/%m/%Y")
             nova = pd.DataFrame([{'CPF': cpf_func, 'Data_Eleicao': data_formatada, 'Direito': int(qtd), 'Saldo': int(qtd)}])
@@ -183,7 +186,7 @@ elif opcao == "Ajustes do Sistema ⚙️":
                 edt_s['Nome'] = edt_s['Nome'].astype(str).str.upper()
                 
             salvar_dados(edt_s, edt_d, edt_f)
-            st.success("Todos os arquivos foram atualizados com sucesso!")
+            st.success("Todos os arquivos foram updated com sucesso!")
             st.rerun()
     elif senha != "":
         st.error("Senha incorreta. Acesso negado.")
