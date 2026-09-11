@@ -44,9 +44,11 @@ if opcao == "Painel de Saldos":
             if sel_assinante == "Jacques Bras da Silva":
                 nome_responsavel = "Jacques Bras da Silva"
                 cargo_responsavel = "Gerente de Organização Escolar"
+                # Exibe o cargo fixado na tela apenas para confirmação visual
+                st.text_input("Cargo do Emissor", value=cargo_responsavel, disabled=True)
             else:
                 nome_responsavel = st.text_input("Nome Completo do Emissor").strip()
-                cargo_responsavel = st.selectbox("Cargo do Emissor", ["Agente de Organização Escolar", "Diretor de Escola"])
+                cargo_responsavel = st.selectbox("Cargo do Emissor", ["Gerente de Organização Escolar", "Agente de Organização Escolar", "Diretor de Escola"])
         
         with col2:
             servidores_ativos = df_servidores[df_servidores['Status'] == 'Ativo']['Nome'].tolist()
@@ -131,7 +133,8 @@ elif opcao == "Registrar Folga (Débito)":
         if st.button("Confirmar Baixa de 1 Dia"):
             indices = df_declaracoes[(df_declaracoes['CPF'] == cpf_func) & (df_declaracoes['Saldo'] > 0)].index
             if len(indices) > 0:
-                df_declaracoes.at[indices[0], 'Saldo'] -= 1
+                idx_alvo = indices[0]
+                df_declaracoes.at[idx_alvo, 'Saldo'] -= 1
                 nova = pd.DataFrame([{'CPF': cpf_func, 'Data_Folga': str(data_f)}])
                 df_folgas = pd.concat([df_folgas, nova], ignore_index=True)
                 salvar_dados(df_servidores, df_declaracoes, df_folgas)
