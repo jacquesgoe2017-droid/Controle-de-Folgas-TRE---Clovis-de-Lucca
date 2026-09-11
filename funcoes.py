@@ -59,8 +59,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico_creditos, nome_assinante, car
     else:
         for _, row in historico_creditos.iterrows():
             if row['Saldo'] > 0:
-                dt_f = datetime.strptime(str(row['Data_Eleicao']), "%Y-%m-%d").strftime("%d/%m/%Y") if "-" in str(row['Data_Eleicao']) else str(row['Data_Eleicao'])
-                story.append(Paragraph(f"• Eleição em {dt_f}: Direito a {row['Direito']} dias | <b>Saldo Restante: {row['Saldo']} dia(s)</b>", style_c))
+                story.append(Paragraph(f"• Eleição em {row['Data_Eleicao']}: Direito a {row['Direito']} dias | <b>Saldo Restante: {row['Saldo']} dia(s)</b>", style_c))
                 
     story.append(Spacer(1, 40))
     texto_local = f"São Bernardo do Campo, {dt_atual}."
