@@ -149,8 +149,9 @@ elif opcao == "Lançar DeclARAÇÃO (Crédito)":
     else:
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor", func_opcoes)
-        cpf_func = ativos[ativos['Nome'] == func]['CPF'].values[0]
+        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values[0]
         data_e = st.date_input("Data da Eleição", format="DD/MM/YYYY")
+        # FIXADO: Adicionadas as opções 2 e 4 dias na caixinha para o botão reaparecer
         qtd = st.selectbox("Dias de Direito", [2, 4])
         if st.button("Gravar Crédito"):
             data_formatada = data_e.strftime("%d/%m/%Y")
@@ -168,7 +169,7 @@ elif opcao == "Registrar Folga (Débito)":
     else:
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor que está tirando folga hoje", func_opcoes)
-        cpf_func = ativos[ativos['Nome'] == func]['CPF'].values[0]
+        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values[0]
         data_f = st.date_input("Data do dia da folga gozada", format="DD/MM/YYYY")
         if st.button("Confirmar Baixa de 1 Dia"):
             df_declaracoes['Saldo'] = pd.to_numeric(df_declaracoes['Saldo'])
@@ -191,10 +192,20 @@ elif opcao == "Ajustes do Sistema ⚙️":
     senha = st.text_input("Digite a senha master para liberar as tabelas", type="password")
     if senha == "clovis":
         st.success("Acesso Liberado! Use o formato DD/MM/AAAA para alterar as datas.")
-        config_colunas_dec = {"Data_Eleicao": st.column_config.TextColumn("Data_Eleicao"), "Direito": st.column_config.NumberColumn("Direito"), "Saldo": st.column_config.NumberColumn("Saldo")}
-        config_colunas_fol = {"Data_Folga": st.column_config.TextColumn("Data_Folga")}
         
-        edt_s = st.data_editor(df_servidores, num_rows="dynamic", key="ed_s")
+        # FIXADO: Configuração estrita de tipos de texto e números para blindar contra o erro do data_editor
+        config_colunas_s = {"CPF": st.column_config.TextColumn("CPF"), "Nome": st.column_config.TextColumn("Nome"), "Status": st.column_config.TextColumn("Status")}
+        config_colunas_dec = {"CPF": st.column_config.TextColumn("CPF"), "Data_Eleicao": st.column_config.TextColumn("Data_Eleicao"), "Direito": st.column_config.NumberColumn("Direito"), "Saldo": st.column_config.NumberColumn("Saldo")}
+        config_colunas_fol = {"CPF": st.column_config.TextColumn("CPF"), "Data_Folga": st.column_config.TextColumn("Data_Folga")}
+        
+        # Converte as planilhas da memória para o formato compatível antes de exibir na tela
+        df_servidores['CPF'] = df_servidores['CPF'].astype(str)
+        df_declaracoes['CPF'] = df_declaracoes['CPF'].astype(str)
+        df_declaracoes['Data_Eleicao'] = df_declaracoes['Data_Eleicao'].astype(str)
+        df_folgas['CPF'] = df_folgas['CPF'].astype(str)
+        df_folgas['Data_Folga'] = df_folgas['Data_Folga'].astype(str)
+        
+        edt_s = st.data_editor(df_servidores, num_rows="dynamic", column_config=config_colunas_s, key="ed_s")
         edt_d = st.data_editor(df_declaracoes, num_rows="dynamic", column_config=config_colunas_dec, key="ed_d")
         edt_f = st.data_editor(df_folgas, num_rows="dynamic", column_config=config_colunas_fol, key="ed_f")
         if st.button("💾 Salvar Todas as Alterações"):
@@ -208,7 +219,7 @@ elif opcao == "Ajustes do Sistema ⚙️":
 
 st.sidebar.markdown("---")
 st.sidebar.caption("🌐 **Informações do Sistema**")
-st.sidebar.caption("• **Versão:** 1.1.1 (Estável Corrigida)")
+st.sidebar.caption("• **Versão:** 1.1.2 (Estável Blindada)")
 st.sidebar.caption("• **Ano de Lançamento:** 2026")
 st.sidebar.caption("• **Idealização e Gestão:** Jacques Bras da Silva")
 st.sidebar.caption("• **Unidade:** E.E. Clovis de Lucca")
