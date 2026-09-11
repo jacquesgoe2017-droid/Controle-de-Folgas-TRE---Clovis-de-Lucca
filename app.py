@@ -44,7 +44,6 @@ if opcao == "Painel de Saldos":
             if sel_assinante == "Jacques Bras da Silva":
                 nome_responsavel = "Jacques Bras da Silva"
                 cargo_responsavel = "Gerente de Organização Escolar"
-                # Exibe o cargo fixado na tela apenas para confirmação visual
                 st.text_input("Cargo do Emissor", value=cargo_responsavel, disabled=True)
             else:
                 nome_responsavel = st.text_input("Nome Completo do Emissor").strip()
@@ -115,10 +114,11 @@ elif opcao == "Lançar Declaração (Crédito)":
         data_e = st.date_input("Data da Eleição")
         qtd = st.selectbox("Dias de Direito", [2, 4])
         if st.button("Gravar Crédito"):
-            nova = pd.DataFrame([{'CPF': cpf_func, 'Data_Eleicao': str(data_e), 'Direito': int(qtd), 'Saldo': int(qtd)}])
-            df_declaracoes = pd.concat([df_declaracoes, nova], ignore_index=True).sort_values(by='Data_Eleicao').reset_index(drop=True)
+            data_formatada = data_e.strftime("%d/%m/%Y")
+            nova = pd.DataFrame([{'CPF': cpf_func, 'Data_Eleicao': data_formatada, 'Direito': int(qtd), 'Saldo': int(qtd)}])
+            df_declaracoes = pd.concat([df_declaracoes, nova], ignore_index=True)
             salvar_dados(df_servidores, df_declaracoes, df_folgas)
-            st.success("Crédito gravado!")
+            st.success("Crédito gravado no formato brasileiro!")
 
 # 4. REGISTRAR FOLGA
 elif opcao == "Registrar Folga (Débito)":
@@ -135,7 +135,8 @@ elif opcao == "Registrar Folga (Débito)":
             if len(indices) > 0:
                 idx_alvo = indices[0]
                 df_declaracoes.at[idx_alvo, 'Saldo'] -= 1
-                nova = pd.DataFrame([{'CPF': cpf_func, 'Data_Folga': str(data_f)}])
+                data_formatada = data_f.strftime("%d/%m/%Y")
+                nova = pd.DataFrame([{'CPF': cpf_func, 'Data_Folga': data_formatada}])
                 df_folgas = pd.concat([df_folgas, nova], ignore_index=True)
                 salvar_dados(df_servidores, df_declaracoes, df_folgas)
                 st.success("Folga debitada do direito mais antigo!")
@@ -145,21 +146,14 @@ elif opcao == "Registrar Folga (Débito)":
 
 # 5. AJUSTES DO SISTEMA
 elif opcao == "Ajustes do Sistema ⚙️":
-    st.subheader("🛠️ Área Administrativa (Edição de Lançamentos)")
+    st.subheader("🛠️ Área Administrative (Edição de Lançamentos)")
     senha = st.text_input("Digite a senha master para liberar as tabelas", type="password")
     
-    if senha == "1234":
+    if senha == "clovis":
         st.success("Acesso Liberado! Você pode alterar as planilhas abaixo diretamente na tela.")
-        
-        st.write("#### 1. Editar Cadastro de Servidores")
         edt_s = st.data_editor(df_servidores, num_rows="dynamic", key="ed_s")
-        
-        st.write("#### 2. Editar Declarações (Créditos/Saldos)")
         edt_d = st.data_editor(df_declaracoes, num_rows="dynamic", key="ed_d")
-        
-        st.write("#### 3. Editar Folgas Tiradas (Débitos)")
         edt_f = st.data_editor(df_folgas, num_rows="dynamic", key="ed_f")
-        
         if st.button("💾 Salvar Todas as Alterações"):
             salvar_dados(edt_s, edt_d, edt_f)
             st.success("Todos os arquivos foram atualizados com sucesso!")
