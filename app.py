@@ -14,8 +14,11 @@ if not st.session_state.autenticado:
     col_l1, col_img_esq, col_espaco, col_img_dir, col_r1 = st.columns([2, 1.2, 0.4, 1.2, 2])
     
     with col_img_esq:
-        # Símbolo 1: O Brasão do Estado de São Paulo fixo no topo esquerdo
-        st.image("https://saopaulo.sp.gov.br", width=95)
+        # CORREÇÃO: Lê o Brasão diretamente do arquivo local salvo no GitHub
+        if os.path.exists("brasao_sp.png"):
+            st.image("brasao_sp.png", width=95)
+        else:
+            st.markdown("<h2 style='margin-top: 15px;'>⚖️</h2>", unsafe_allow_html=True)
         
     with col_img_dir:
         # Símbolo 2: O Logotipo próprio da escola no topo direito
@@ -55,7 +58,8 @@ df_servidores, df_declaracoes, df_folgas = inicializar_bancos()
 # EXIBE OS DOIS SÍMBOLOS LADO A LADO TAMBÉM NO TOPO DA BARRA LATERAL INTERNA
 col_side1, col_side2 = st.sidebar.columns(2)
 with col_side1:
-    st.image("https://saopaulo.sp.gov.br", width=65)
+    if os.path.exists("brasao_sp.png"):
+        st.image("brasao_sp.png", width=65)
 with col_side2:
     if os.path.exists("logo_escola.png"):
         st.image("logo_escola.png", width=75)
@@ -138,6 +142,7 @@ if opcao == "Painel de Saldos":
                             st.download_button(label="⬇️ Baixar Declaração para Imprimir", data=pdf_file, file_name=f"Certidao_TRE_{cpf_bruto}.pdf", mime="application/pdf")
             else:
                 st.warning("Nenhum funcionário ativo disponível.")
+
 # 2. GERENCIAR SERVIDORES
 elif opcao == "Gerenciar Servidores":
     st.subheader("👥 Rotatividade de Funcionários")
