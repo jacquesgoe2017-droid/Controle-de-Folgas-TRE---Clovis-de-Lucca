@@ -35,6 +35,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico_creditos, nome_assinante, car
     styles = getSampleStyleSheet()
     
     style_t = ParagraphStyle('T', fontName='Helvetica-Bold', fontSize=13, leading=16, alignment=TA_CENTER)
+    # Estilo menor criado especificamente para as informações de contato
     style_e = ParagraphStyle('E', fontName='Helvetica', fontSize=10, leading=14, alignment=TA_CENTER)
     style_c = ParagraphStyle('C', fontName='Helvetica', fontSize=11, leading=17, alignment=TA_JUSTIFY)
     style_d = ParagraphStyle('D', fontName='Helvetica', fontSize=11, leading=16, alignment=TA_RIGHT)
@@ -42,9 +43,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico_creditos, nome_assinante, car
     
     story = []
     
-    # CORREÇÃO: Insere o logotipo fictício/oficial centralizado antes do texto da secretaria
     if os.path.exists(ARQUIVO_LOGO):
-        # Ajusta a largura para 120 e altura para 60 para ficar esteticamente perfeito na folha
         img = Image(ARQUIVO_LOGO, width=120, height=60)
         img.hAlign = 'CENTER'
         story.append(img)
@@ -55,7 +54,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico_creditos, nome_assinante, car
         Paragraph("<b>Unidade Regional de Ensino de São Bernardo do Campo</b>", style_t),
         Paragraph("<b>E.E. Clovis de Lucca</b>", style_t),
         Paragraph("<b>Rua dos Vianas, 1915 - Baeta Neves - S.B. Campo - SP</b>", style_e),
-        Paragraph("<b>E-mail: e009124a@educacao.sp.gov.br - Fone: 11 - 4332-6372</b>", style_e),,
+        Paragraph("<b>E-mail: e009124a@educacao.sp.gov.br - Fone: 11 - 4332-6372</b>", style_e),
         Spacer(1, 25),
         Paragraph("<u><b>CERTIDÃO DE LIQUIDAÇÃO DE FOLGAS - TRE</b></u>", style_t),
         Spacer(1, 30)
@@ -93,13 +92,13 @@ def gerar_pdf_lista_geral(df_resumo):
     styles = getSampleStyleSheet()
     
     style_t = ParagraphStyle('T', fontName='Helvetica-Bold', fontSize=13, leading=16, alignment=TA_CENTER)
+    style_e = ParagraphStyle('E', fontName='Helvetica', fontSize=10, leading=14, alignment=TA_CENTER)
     style_th = ParagraphStyle('TH', fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=TA_CENTER)
     style_td = ParagraphStyle('TD', fontName='Helvetica', fontSize=9, leading=12)
     style_td_c = ParagraphStyle('TDC', fontName='Helvetica', fontSize=9, leading=12, alignment=TA_CENTER)
     
     story = []
     
-    # Insere o logotipo também no topo do relatório de lista geral
     if os.path.exists(ARQUIVO_LOGO):
         img = Image(ARQUIVO_LOGO, width=100, height=50)
         img.hAlign = 'CENTER'
@@ -110,6 +109,8 @@ def gerar_pdf_lista_geral(df_resumo):
         Paragraph("<b>Secretaria de Estado da Educação</b>", style_t),
         Paragraph("<b>Unidade Regional de Ensino de São Bernardo do Campo</b>", style_t),
         Paragraph("<b>E.E. Clovis de Lucca</b>", style_t),
+        Paragraph("<b>Rua dos Vianas, 1915 - Baeta Neves - S.B. Campo - SP</b>", style_e),
+        Paragraph("<b>E-mail: e009124a@educacao.sp.gov.br - Fone: 11 - 4332-6372</b>", style_e),
         Spacer(1, 15),
         Paragraph("<b>RELAÇÃO GERAL DE SALDOS DE FOLGAS - TRE</b>", style_t),
         Spacer(1, 15)
@@ -118,7 +119,7 @@ def gerar_pdf_lista_geral(df_resumo):
     data = [[Paragraph("<b>CPF</b>", style_th), Paragraph("<b>Nome do Servidor</b>", style_th), Paragraph("<b>Status</b>", style_th), Paragraph("<b>Total Conq.</b>", style_th), Paragraph("<b>Total Usuf.</b>", style_th), Paragraph("<b>Saldo Disponível</b>", style_th)]]
     for _, row in df_resumo.iterrows():
         data.append([Paragraph(str(row['CPF']), style_td_c), Paragraph(str(row['Nome']), style_td), Paragraph(str(row['Status']), style_td_c), Paragraph(str(row['Total Conquistado']), style_td_c), Paragraph(str(row['Total Usufruído']), style_td_c), Paragraph(f"<b>{row['Saldo Disponível']}</b>", style_td_c)])
-    tabela = Table(data, colWidths=[80, 200, 50, 60, 60, 80])
+    tabela = Table(data, colWidths=[80, 220, 50, 60, 60, 70])
     tabela.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey), ('GRID', (0, 0), (-1, -1), 0.5, colors.grey), ('BOTTOMPADDING', (0, 0), (-1, -1), 6), ('TOPPADDING', (0, 0), (-1, -1), 6)]))
     story.append(tabela)
     doc.build(story)
