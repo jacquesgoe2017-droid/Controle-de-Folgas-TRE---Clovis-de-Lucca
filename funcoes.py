@@ -2,9 +2,10 @@ import os
 import pandas as pd
 from datetime import datetime
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_RIGHT
+from reportlab.lib import colors
 
 DB_SERVIDORES = "servidores.csv"
 DB_DECLARACOES = "declaracoes.csv"
@@ -69,5 +70,58 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico_creditos, nome_assinante, car
     story.append(Paragraph("____________________________________________", style_a))
     story.append(Paragraph(f"<b>{nome_assinante.upper()}</b>", style_a))
     story.append(Paragraph(f"{cargo_assinante}", style_a))
+    doc.build(story)
+    return filename
+
+def gerar_pdf_lista_geral(df_resumo):
+    filename = "relatorio_saldos_geral.pdf"
+    doc = SimpleDocTemplate(filename, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=54, bottomMargin=54)
+    styles = getSampleStyleSheet()
+    
+    style_t = ParagraphStyle('T', fontName='Helvetica-Bold', fontSize=13, leading=16, alignment=TA_CENTER)
+    style_th = ParagraphStyle('TH', fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=TA_CENTER)
+    style_td = ParagraphStyle('TD', fontName='Helvetica', fontSize=9, leading=12)
+    style_td_c = ParagraphStyle('TDC', fontName='Helvetica', fontSize=9, leading=12, alignment=TA_CENTER)
+    
+    story = [
+        Paragraph("<b>Secretaria de Estado da Educação</b>", style_t),
+        Paragraph("<b>Unidade Regional de Ensino de São Bernardo do Campo</b>", style_t),
+        Paragraph("<b>E.E. Clovis de Lucca</b>", style_t),
+        Spacer(1, 20),
+        Paragraph("<b>RELAÇÃO GERAL DE SALDOS DE FOLGAS - TRE</b>", style_t),
+        Spacer(1, 15)
+    ]
+    
+    # Preparar dados para a tabela do PDF (Larguras fixas para caber na folha)
+    data = [[
+        Paragraph("<b>CPF</b>", style_th),
+        Paragraph("<b>Nome do Servidor</b>", style_th),
+        Paragraph("<b>Status</b>", style_th),
+        Paragraph("<b>Total Conq.</b>", style_th),
+        Paragraph("<b>Total Usuf.</b>", style_th),
+        Paragraph("<b>Saldo Disponível</b>", style_th)
+    ]]
+    
+    for _, row in df_resumo.iterrows():
+        data.append([
+            Paragraph(str(row['CPF']), style_td_c),
+            Paragraph(str(row['Nome']), style_td),
+            Paragraph(str(row['Status']), style_td_c),
+            Paragraph(str(row['Total Conquistado']), style_td_c),
+            Paragraph(str(row['Total Usufruído']), style_td_c),
+            Paragraph(f"<b>{row['Saldo Disponível']}</b>", style_td_c)
+        ])
+        
+    tabela = Table(data, colWidths=[85, 200, 55, 65, 65, 70])
+    tabela.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    
+    story.append(tabela)
     doc.build(story)
     return filename
