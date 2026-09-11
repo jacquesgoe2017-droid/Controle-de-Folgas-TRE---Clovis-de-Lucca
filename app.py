@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 st.set_page_config(page_title="Controle TRE - GOE", page_icon="🎟️", layout="wide")
-st.title("Controle de Folgas TRE - EE Clovis de Lucca")
+st.title("🎟️ Sistema Web - Controle de Folgas TRE (Método PEPS)")
 
 from funcoes import inicializar_bancos, salvar_dados, gerar_pdf_certidao, gerar_pdf_lista_geral
 
@@ -190,10 +190,41 @@ elif opcao == "Ajustes do Sistema ⚙️":
             st.rerun()
     elif senha != "":
         st.error("Senha incorreta. Acesso negado.")
-# 6. NFORMAÇÕES DE VERSÃO E AUTORIA (RODAPÉ DA BARRA LATERAL)
+# 5. AJUSTES DO SISTEMA
+elif opcao == "Ajustes do Sistema ⚙️":
+    st.subheader("🛠️ Área Administrativa (Edição de Lançamentos)")
+    senha = st.text_input("Digite a senha master para liberar as tabelas", type="password")
+    
+    if senha == "clovis":
+        st.success("Acesso Liberado! Use o formato DD/MM/AAAA para alterar as datas.")
+        
+        config_colunas_dec = {"Data_Eleicao": st.column_config.TextColumn("Data_Eleicao")}
+        config_colunas_fol = {"Data_Folga": st.column_config.TextColumn("Data_Folga")}
+        
+        edt_s = st.data_editor(df_servidores, num_rows="dynamic", key="ed_s")
+        edt_d = st.data_editor(df_declaracoes, num_rows="dynamic", column_config=config_colunas_dec, key="ed_d")
+        edt_f = st.data_editor(df_folgas, num_rows="dynamic", column_config=config_colunas_fol, key="ed_f")
+        
+        if st.button("💾 Salvar Todas as Alterações"):
+            if not edt_s.empty:
+                edt_s['Nome'] = edt_s['Nome'].astype(str).str.upper()
+                
+            salvar_dados(edt_s, edt_d, edt_f)
+            st.success("Todos os arquivos foram atualizados com sucesso!")
+            st.rerun()
+    elif senha != "":
+        st.error("Senha incorreta. Acesso negado.")
+
+# --- INFORMAÇÕES DE VERSÃO E AUTORIA (RODAPÉ DA BARRA LATERAL) ---
 st.sidebar.markdown("---")
-st.sidebar.caption("🌐 Informações do Sistema")
-st.sidebar.caption("• Versão: 1.0.0 (Estável)")
-st.sidebar.caption("• Ano de Lançamento: 2026")
-st.sidebar.caption("• Idealização e Gestão: Jacques Bras da Silva")
-st.sidebar.caption("• Unidade: E.E. Clovis de Lucca")
+st.sidebar.caption("🌐 **Informações do Sistema**")
+st.sidebar.caption("• **Versão:** 1.1.0 (LGPD Protegida)")
+st.sidebar.caption("• **Ano de Lançamento:** 2026")
+st.sidebar.caption("• **Idealização e Gestão:** Jacques Bras da Silva")
+st.sidebar.caption("• **Unidade:** E.E. Clovis de Lucca")
+
+# Botão de Logoff na barra lateral para fechar o sistema após o uso
+if st.sidebar.button("Sair do Sistema 🔒"):
+    st.session_state.autenticado = False
+    st.rerun()
+
