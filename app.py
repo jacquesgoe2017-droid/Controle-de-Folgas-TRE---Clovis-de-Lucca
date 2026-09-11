@@ -3,34 +3,35 @@ import pandas as pd
 import os
 from datetime import datetime
 
-st.set_page_config(page_title="Controle TRE - GOE - EE Clovis de Lucca", page_icon="🎟️", layout="wide")
+st.set_page_config(page_title="Controle TRE - GOE", page_icon="🎟️", layout="wide")
 
 # --- SISTEMA DE SEGURANÇA E PROTEÇÃO LGPD (TELA DE LOGIN) ---
 if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
-    st.container()
-    st.subheader("🔒 Acesso Restrito - E.E. Clovis de Lucca")
-    st.write("Este sistema contém dados pessoais protegidos pela LGPD. Para acessar, insira a chave de segurança da unidade escolar.")
+    st.markdown("<h2 style='text-align: center;'>🔒 Acesso Restrito - E.E. Clovis de Lucca</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: gray;'>Este sistema contém dados pessoais protegidos pela LGPD. Insira a chave de segurança escolar.</p>", unsafe_allow_html=True)
     
-    chave_escola = st.text_input("Chave de Acesso Escolar", type="password")
-    
-    if st.button("Entrar no Sistema 🔓"):
-        # VOCÊ PODE MUDAR A SENHA 'clovis2026' PARA A QUE PREFERIR AQUI ABAIXO
-        if chave_escola == "clovis2026":
-            st.session_state.autenticado = True
-            st.success("Acesso autorizado!")
-            st.rerun()
-        else:
-            st.error("Chave de segurança incorreta. Acesso negado.")
+    col_l, col_c, col_r = st.columns([1, 2, 1])
+    with col_c:
+        with st.form("Formulário de Login"):
+            chave_escola = st.text_input("Chave de Acesso Escolar", type="password")
+            botao_login = st.form_submit_button("Entrar no Sistema 🔓")
             
-    # Rodapé de segurança mesmo na tela de login
+            if botao_login:
+                if chave_escola == "clovis2026":
+                    st.session_state.autenticado = True
+                    st.success("Acesso autorizado!")
+                    st.rerun()
+                else:
+                    st.error("Chave de segurança incorreta. Acesso negado.")
+            
     st.markdown("---")
-    st.caption("⚠️ *Uso exclusivo de servidores autorizados da Gerência de Organização Escolar.*")
-    st.stop() # Interrompe o código aqui, impedindo a leitura dos dados abaixo se não estiver logado
+    st.markdown("<p style='text-align: center; font-size: 12px; color: gray;'>⚠️ <i>Uso exclusivo de servidores autorizados da Gerência de Organização Escolar.</i></p>", unsafe_allow_html=True)
+    st.stop()
 
-# --- A PARTIR DAQUI O SISTEMA SÓ RODA SE ESTIVER AUTENTICADO ---
+# --- TÍTULO DO PROGRAMA APÓS AUTENTICAÇÃO ---
 st.title("Controle de Folgas TRE - EE Clovis de Lucca")
 
 from funcoes import inicializar_bancos, salvar_dados, gerar_pdf_certidao, gerar_pdf_lista_geral
@@ -58,7 +59,6 @@ if opcao == "Painel de Saldos":
                 'Total Conquistado': creditos_totais, 'Total Usufruído': debitos_totais, 'Saldo Disponível': saldo_atual
             })
         df_resumo = pd.DataFrame(resumo)
-        
         df_resumo.index = df_resumo.index + 1
         
         busca = st.text_input("Buscar Servidor pelo Nome ou CPF").strip().upper()
@@ -68,11 +68,9 @@ if opcao == "Painel de Saldos":
         
         st.write("#### 💾 Exportar Relação de Todos os Saldos")
         col_btn1, col_btn2, _ = st.columns(3)
-        
         with col_btn1:
             csv_data = df_resumo.to_csv(index=False).encode('utf-8-sig')
             st.download_button(label="📊 Baixar Lista para Excel (CSV)", data=csv_data, file_name="Lista_Saldos_TRE.csv", mime="text/csv")
-            
         with col_btn2:
             if st.button("🖨️ Criar Relatório em PDF"):
                 pdf_lista_path = gerar_pdf_lista_geral(df_resumo)
@@ -81,12 +79,10 @@ if opcao == "Painel de Saldos":
         
         st.markdown("---")
         st.subheader("🖨️ Emitir Declaração Oficial de Saldo Individual")
-        
         col1, col2 = st.columns(2)
         with col1:
             assinante_opcoes = ["Jacques Bras da Silva", "Outro Funcionário / Agente"]
             sel_assinante = st.selectbox("Quem está emitindo este documento?", assinante_opcoes)
-            
             if sel_assinante == "Jacques Bras da Silva":
                 nome_responsavel = "Jacques Bras da Silva"
                 cargo_responsavel = "Gerente de Organização Escolar"
@@ -94,7 +90,6 @@ if opcao == "Painel de Saldos":
             else:
                 nome_responsavel = st.text_input("Nome Completo do Emissor").strip().upper()
                 cargo_responsavel = st.selectbox("Cargo do Emissor", ["Gerente de Organização Escolar", "Agente de Organização Escolar", "Diretor de Escola"])
-        
         with col2:
             servidores_ativos = df_servidores[df_servidores['Status'] == 'Ativo']['Nome'].unique().tolist()
             if servidores_ativos:
@@ -102,7 +97,6 @@ if opcao == "Painel de Saldos":
                 cpf_certidao = df_servidores[df_servidores['Nome'] == sel_certidao]['CPF'].values[0]
                 saldo_certidao = df_declaracoes[df_declaracoes['CPF'] == cpf_certidao]['Saldo'].sum()
                 historico_contrib = df_declaracoes[df_declaracoes['CPF'] == cpf_certidao]
-                
                 if st.button("Gerar Certidão em PDF"):
                     if not nome_responsavel:
                         st.error("Por favor, preencha o nome do emissor.")
@@ -131,7 +125,6 @@ elif opcao == "Gerenciar Servidores":
                     st.rerun()
             else:
                 st.error("Preencha todos os campos.")
-                
     st.write("### Painel de Movimentação de Status")
     for idx, row in df_servidores.iterrows():
         c1, c2, c3 = st.columns(3)
@@ -190,11 +183,7 @@ elif opcao == "Registrar Folga (Débito)":
                 st.success("Folga debitada do direito mais antigo!")
                 st.rerun()
             else:
-                st.error("Este servidor não possui saldo disponível.")
-
-# 5. AJUSTES DO SISTEMA
-elif opcao == "Ajustes do Sistema ⚙️":
-# 5. AJUSTES DO SISTEMA
+                # 5. AJUSTES DO SISTEMA
 elif opcao == "Ajustes do Sistema ⚙️":
     st.subheader("🛠️ Área Administrativa (Edição de Lançamentos)")
     senha = st.text_input("Digite a senha master para liberar as tabelas", type="password")
@@ -219,7 +208,6 @@ elif opcao == "Ajustes do Sistema ⚙️":
     elif senha != "":
         st.error("Senha incorreta. Acesso negado.")
 
-# --- INFORMAÇÕES DE VERSÃO E AUTORIA (RODAPÉ DA BARRA LATERAL) ---
 st.sidebar.markdown("---")
 st.sidebar.caption("🌐 **Informações do Sistema**")
 st.sidebar.caption("• **Versão:** 1.1.0 (LGPD Protegida)")
@@ -227,7 +215,6 @@ st.sidebar.caption("• **Ano de Lançamento:** 2026")
 st.sidebar.caption("• **Idealização e Gestão:** Jacques Bras da Silva")
 st.sidebar.caption("• **Unidade:** E.E. Clovis de Lucca")
 
-# Botão de Logoff na barra lateral para fechar o sistema após o uso
 if st.sidebar.button("Sair do Sistema 🔒"):
     st.session_state.autenticado = False
     st.rerun()
