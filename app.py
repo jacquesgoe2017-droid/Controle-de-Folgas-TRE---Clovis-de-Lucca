@@ -10,11 +10,9 @@ if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
-    # Cria uma estrutura de colunas para forçar o logotipo da escola a ficar no centro exato da tela
     col_l1, col_img_centro, col_r1 = st.columns([2.2, 1.6, 2.2])
     
     with col_img_centro:
-        # Exibe única e exclusivamente o logotipo da sua escola centralizado
         if os.path.exists("logo_escola.png"):
             st.image("logo_escola.png", use_container_width=True)
         else:
@@ -48,7 +46,6 @@ from funcoes import inicializar_bancos, salvar_dados, gerar_pdf_certidao, gerar_
 
 df_servidores, df_declaracoes, df_folgas = inicializar_bancos()
 
-# LOGOTIPO DA ESCOLA FIXADO NO TOPO DO MENU LATERAL INTERNO
 if os.path.exists("logo_escola.png"):
     st.sidebar.image("logo_escola.png", use_container_width=True)
 st.sidebar.markdown("---")
@@ -77,9 +74,10 @@ if opcao == "Painel de Saldos":
             debitos_totais = df_folgas[df_folgas['CPF'] == str(s['CPF'])].shape
             
             cpf_formatado = formatar_cpf(s['CPF'])
+            # CORREÇÃO CRÍTICA: Extrai estritamente a contagem de linhas usando debitos_totais[0]
             resumo.append({
                 'CPF': cpf_formatado, 'Nome': s['Nome'], 'Status': s['Status'],
-                'Total Conquistado': int(creditos_totais), 'Total Usufruído': int(debitos_totais), 'Saldo Disponível': int(saldo_atual)
+                'Total Conquistado': int(creditos_totais), 'Total Usufruído': int(debitos_totais[0]), 'Saldo Disponível': int(saldo_atual)
             })
         df_resumo = pd.DataFrame(resumo)
         df_resumo.index = df_resumo.index + 1
@@ -96,7 +94,7 @@ if opcao == "Painel de Saldos":
             st.download_button(label="📊 Baixar Lista para Excel (CSV)", data=csv_data, file_name="Lista_Saldos_TRE.csv", mime="text/csv")
         with col_btn2:
             if st.button("🖨️ Criar Relatório em PDF"):
-                pdf_lista_path = gerar_pdf_lista_geral(df_resumo)
+                pdf_lista_path = photographic_lista_path = gerar_pdf_lista_geral(df_resumo)
                 with open(pdf_lista_path, "rb") as f_lista:
                     st.download_button(label="⬇️ Baixar Lista em PDF", data=f_lista, file_name="Relatorio_Saldos_Geral.pdf", mime="application/pdf")
         
@@ -117,7 +115,7 @@ if opcao == "Painel de Saldos":
             servidores_ativos = df_servidores[df_servidores['Status'] == 'Ativo']['Nome'].unique().tolist()
             if servidores_ativos:
                 sel_certidao = st.selectbox("Escolha o servidor para gerar a folha em PDF", servidores_ativos)
-                cpf_bruto = df_servidores[df_servidores['Nome'] == sel_certidao]['CPF'].values
+                cpf_bruto = df_servidores[df_servidores['Nome'] == sel_certidao]['CPF'].values[0]
                 saldo_certidao = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == str(cpf_bruto)]['Saldo']).sum()
                 historico_contrib = df_declaracoes[df_declaracoes['CPF'] == str(cpf_bruto)]
                 if st.button("Gerar Certidão em PDF"):
@@ -176,7 +174,7 @@ elif opcao == "Lançar DeclARAÇÃO (Crédito)":
     else:
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor", func_opcoes)
-        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values
+        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values[0]
         data_e = st.date_input("Data da Eleição", format="DD/MM/YYYY")
         qtd = st.selectbox("Dias de Direito",)
         if st.button("Gravar Crédito"):
@@ -195,13 +193,13 @@ elif opcao == "Registrar Folga (Débito)":
     else:
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor que está tirando folga hoje", func_opcoes)
-        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values
+        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values[0]
         data_f = st.date_input("Data do dia da folga gozada", format="DD/MM/YYYY")
         if st.button("Confirmar Baixa de 1 Dia"):
             df_declaracoes['Saldo'] = pd.to_numeric(df_declaracoes['Saldo'])
             indices = df_declaracoes[(df_declaracoes['CPF'] == str(cpf_func)) & (df_declaracoes['Saldo'] > 0)].index
             if len(indices) > 0:
-                idx_alvo = indices
+                idx_alvo = indices[0]
                 df_declaracoes.at[idx_alvo, 'Saldo'] -= 1
                 data_formatada = data_f.strftime("%d/%m/%Y")
                 nova = pd.DataFrame([{'CPF': str(cpf_func), 'Data_Folga': data_formatada}])
@@ -243,7 +241,7 @@ elif opcao == "Ajustes do Sistema ⚙️":
 
 st.sidebar.markdown("---")
 st.sidebar.caption("🌐 **Informações do Sistema**")
-st.sidebar.caption("• **Versão:** 1.1.8 (Logo Única Centralizada)")
+st.sidebar.caption("• **Versão:** 1.1.9 (Estável Definitiva)")
 st.sidebar.caption("• **Ano de Lançamento:** 2026")
 st.sidebar.caption("• **Idealização e Gestão:** Jacques Bras da Silva")
 st.sidebar.caption("• **Unidade:** E.E. Clovis de Lucca")
