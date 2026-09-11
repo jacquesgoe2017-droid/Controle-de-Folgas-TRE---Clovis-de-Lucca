@@ -6,11 +6,49 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_RIGHT
 from reportlab.lib import colors
+from reportlab.pdfgen import canvas
 
 DB_SERVIDORES = "servidores.csv"
 DB_DECLARACOES = "declaracoes.csv"
 DB_FOLGAS = "folgas.csv"
 ARQUIVO_LOGO = "logo_escola.png"
+
+# --- CLASSE AUXILIAR PARA NUMERAÇÃO DE PÁGINAS DINÂMICA (Página X de Y) ---
+class NumberedCanvas(canvas.Canvas):
+    def __init__(self, *args, **kwargs):
+        canvas.Canvas.__init__(self, *args, **kwargs)
+        self._saved_page_states = []
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        num_pages = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self.draw_page_number(num_pages)
+            canvas.Canvas.showPage(self)
+        canvas.Canvas.save(self)
+
+    def draw_page_number(self, page_count):
+        self.saveState()
+        self.setFont("Helvetica", 9)
+        self.setFillColor(colors.dimgrey)
+        
+        # Desenha uma linha discreta acima do rodapé em todas as páginas
+        self.setLineWidth(0.5)
+        self.setStrokeColor(colors.lightgrey)
+        self.line(36, 45, letter[0] - 36, 45)
+        
+        # Texto do rodapé institucional e numeração dinâmica automatizada
+        texto_rodape = f"Controle de Folgas TRE - E.E. Clovis de Lucca | Emitido em {datetime.now().strftime('%d/%m/%Y')}"
+        texto_pagina = f"Página {self._pageNumber} de {page_count}"
+        
+        self.drawString(36, 32, texto_rodape)
+        self.drawRightString(letter[0] - 36, 32, texto_pagina)
+        self.restoreState()
+
 
 def inicializar_bancos():
     if not os.path.exists(DB_SERVIDORES):
@@ -35,7 +73,6 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico_creditos, nome_assinante, car
     styles = getSampleStyleSheet()
     
     style_t = ParagraphStyle('T', fontName='Helvetica-Bold', fontSize=13, leading=16, alignment=TA_CENTER)
-    # Estilo menor criado especificamente para as informações de contato
     style_e = ParagraphStyle('E', fontName='Helvetica', fontSize=8, leading=14, alignment=TA_CENTER)
     style_c = ParagraphStyle('C', fontName='Helvetica', fontSize=11, leading=17, alignment=TA_JUSTIFY)
     style_d = ParagraphStyle('D', fontName='Helvetica', fontSize=11, leading=16, alignment=TA_RIGHT)
@@ -54,14 +91,14 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico_creditos, nome_assinante, car
         Paragraph("<b>Unidade Regional de Ensino de São Bernardo do Campo</b>", style_t),
         Paragraph("<b>E.E. Clovis de Lucca</b>", style_t),
         Paragraph("<b>Rua dos Vianas, 1915 - Baeta Neves - S.B. Campo - SP</b>", style_e),
-        Paragraph("<b>E-mail:<font color='navy'> e009124a@educacao.sp.gov.br</font> - Fone: 11 - 4330-5463</b>", style_e),
+        Paragraph("<b>E-mail: <font color='navy'><u>e009124a@educacao.sp.gov.br</u></font> - Fone: 11 - 4332-6372</b>", style_e),
         Spacer(1, 25),
         Paragraph("<u><b>CERTIDÃO DE LIQUIDAÇÃO DE FOLGAS - TRE</b></u>", style_t),
         Spacer(1, 30)
     ])
     
     dt_atual = datetime.now().strftime("%d/%m/%Y")
-    texto = f"Certifico, para os devidos fins de direito e regularização de prontuário, que o(a) servidor(a) Sr.(a) <b>{nome.upper()}</b>, inscrito(a) no CPF sob o nº <b>{cpf}</b>, em exercício nesta unidade escolar, possui nesta data o saldo acumulado de <b>{saldo} dia(s) de folga</b> pendente(s) de usufruto, decorrente(s) de convocações pela Justiça Eleitoral (TRE), conforme previsto na legislação vigente."
+    texto = f"Certifico, para os devidos fins de direito e regularização de prontuário, que o(a) servidor(a) <b>{nome.upper()}</b>, inscrito(a) no CPF sob o nº <b>{cpf}</b>, em exercício nesta unidade escolar, possui nesta data o saldo acumulado de <b>{saldo} dia(s) de folga</b> pendente(s) de usufruto, decorrente(s) de convocações pela Justiça Eleitoral (TRE), conforme previsto na legislação vigente."
     story.append(Paragraph(texto, style_c))
     story.append(Spacer(1, 15))
     
@@ -88,7 +125,8 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico_creditos, nome_assinante, car
 
 def gerar_pdf_lista_geral(df_resumo):
     filename = "relatorio_saldos_geral.pdf"
-    doc = SimpleDocTemplate(filename, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=54, bottomMargin=54)
+    # Margens levemente reduzidas para aproveitar o espaço útil da folha
+    doc = SimpleDocTemplate(filename, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=45, bottomMargin=60)
     styles = getSampleStyleSheet()
     
     style_t = ParagraphStyle('T', fontName='Helvetica-Bold', fontSize=13, leading=16, alignment=TA_CENTER)
@@ -110,7 +148,7 @@ def gerar_pdf_lista_geral(df_resumo):
         Paragraph("<b>Unidade Regional de Ensino de São Bernardo do Campo</b>", style_t),
         Paragraph("<b>E.E. Clovis de Lucca</b>", style_t),
         Paragraph("<b>Rua dos Vianas, 1915 - Baeta Neves - S.B. Campo - SP</b>", style_e),
-        Paragraph("<b>E-mail:<font color='navy'> e009124a@educacao.sp.gov.br</font> - Fone: 11 - 4332-6372</b>", style_e),
+        Paragraph("<b>E-mail: <font color='navy'><u>e009124a@educacao.sp.gov.br</u></font> - Fone: 11 - 4332-6372</b>", style_e),
         Spacer(1, 15),
         Paragraph("<b>RELAÇÃO GERAL DE SALDOS DE FOLGAS - TRE</b>", style_t),
         Spacer(1, 15)
@@ -119,8 +157,17 @@ def gerar_pdf_lista_geral(df_resumo):
     data = [[Paragraph("<b>CPF</b>", style_th), Paragraph("<b>Nome do Servidor</b>", style_th), Paragraph("<b>Status</b>", style_th), Paragraph("<b>Total Conq.</b>", style_th), Paragraph("<b>Total Usuf.</b>", style_th), Paragraph("<b>Saldo Disponível</b>", style_th)]]
     for _, row in df_resumo.iterrows():
         data.append([Paragraph(str(row['CPF']), style_td_c), Paragraph(str(row['Nome']), style_td), Paragraph(str(row['Status']), style_td_c), Paragraph(str(row['Total Conquistado']), style_td_c), Paragraph(str(row['Total Usufruído']), style_td_c), Paragraph(f"<b>{row['Saldo Disponível']}</b>", style_td_c)])
-    tabela = Table(data, colWidths=[80, 220, 50, 60, 60, 70])
-    tabela.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey), ('GRID', (0, 0), (-1, -1), 0.5, colors.grey), ('BOTTOMPADDING', (0, 0), (-1, -1), 6), ('TOPPADDING', (0, 0), (-1, -1), 6)]))
+    
+    tabela = Table(data, colWidths=[90, 220, 50, 60, 60, 60])
+    tabela.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')
+    ]))
     story.append(tabela)
-    doc.build(story)
+    
+    # ATIVAÇÃO DO NUMBEREDCANVAS: Constrói o PDF aplicando a paginação automatizada
+    doc.build(story, canvasmaker=NumberedCanvas)
     return filename
