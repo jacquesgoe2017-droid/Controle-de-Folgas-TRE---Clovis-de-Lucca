@@ -53,6 +53,8 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico_creditos, nome_assinante, car
         Paragraph("<b>Secretaria de Estado da Educação</b>", style_t),
         Paragraph("<b>Unidade Regional de Ensino de São Bernardo do Campo</b>", style_t),
         Paragraph("<b>E.E. Clovis de Lucca</b>", style_t),
+        Paragraph("<b>Rua dos Vianas, 1915 - Baeta Neves - S.B. Campo - SP</b>", style_t),
+        Paragraph("<b>E-mail: e009124a@educacao.sp.gov.br - Fone: 11 - 4332-6372</b>", style_t),
         Spacer(1, 25),
         Paragraph("<u><b>CERTIDÃO DE LIQUIDAÇÃO DE FOLGAS - TRE</b></u>", style_t),
         Spacer(1, 30)
