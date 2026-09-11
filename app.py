@@ -10,22 +10,15 @@ if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
-    # Cria uma estrutura de colunas para colocar os dois símbolos lado a lado perfeitamente centralizados
-    col_l1, col_img_esq, col_espaco, col_img_dir, col_r1 = st.columns([2, 1.2, 0.4, 1.2, 2])
+    # Cria uma estrutura de colunas para forçar o logotipo da escola a ficar no centro exato da tela
+    col_l1, col_img_centro, col_r1 = st.columns([2.2, 1.6, 2.2])
     
-    with col_img_esq:
-        # CORREÇÃO: Lê o Brasão diretamente do arquivo local salvo no GitHub
-        if os.path.exists("brasao_sp.png"):
-            st.image("brasao_sp.png", width=95)
-        else:
-            st.markdown("<h2 style='margin-top: 15px;'>⚖️</h2>", unsafe_allow_html=True)
-        
-    with col_img_dir:
-        # Símbolo 2: O Logotipo próprio da escola no topo direito
+    with col_img_centro:
+        # Exibe única e exclusivamente o logotipo da sua escola centralizado
         if os.path.exists("logo_escola.png"):
-            st.image("logo_escola.png", width=105)
+            st.image("logo_escola.png", use_container_width=True)
         else:
-            st.markdown("<h2 style='margin-top: 15px;'>🏫</h2>", unsafe_allow_html=True)
+            st.markdown("<h1 style='text-align: center;'>🏫</h1>", unsafe_allow_html=True)
         
     st.markdown("<h2 style='text-align: center;'>🔒 Acesso Restrito - E.E. Clovis de Lucca</h2>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: gray;'>Este sistema contém dados pessoais protegidos pela LGPD. Insira a chave de segurança escolar.</p>", unsafe_allow_html=True)
@@ -55,14 +48,9 @@ from funcoes import inicializar_bancos, salvar_dados, gerar_pdf_certidao, gerar_
 
 df_servidores, df_declaracoes, df_folgas = inicializar_bancos()
 
-# EXIBE OS DOIS SÍMBOLOS LADO A LADO TAMBÉM NO TOPO DA BARRA LATERAL INTERNA
-col_side1, col_side2 = st.sidebar.columns(2)
-with col_side1:
-    if os.path.exists("brasao_sp.png"):
-        st.image("brasao_sp.png", width=65)
-with col_side2:
-    if os.path.exists("logo_escola.png"):
-        st.image("logo_escola.png", width=75)
+# LOGOTIPO DA ESCOLA FIXADO NO TOPO DO MENU LATERAL INTERNO
+if os.path.exists("logo_escola.png"):
+    st.sidebar.image("logo_escola.png", use_container_width=True)
 st.sidebar.markdown("---")
 
 def formatar_cpf(cpf_sujo):
@@ -142,7 +130,6 @@ if opcao == "Painel de Saldos":
                             st.download_button(label="⬇️ Baixar Declaração para Imprimir", data=pdf_file, file_name=f"Certidao_TRE_{cpf_bruto}.pdf", mime="application/pdf")
             else:
                 st.warning("Nenhum funcionário ativo disponível.")
-
 # 2. GERENCIAR SERVIDORES
 elif opcao == "Gerenciar Servidores":
     st.subheader("👥 Rotatividade de Funcionários")
@@ -249,14 +236,14 @@ elif opcao == "Ajustes do Sistema ⚙️":
             if not edt_s.empty:
                 edt_s['Nome'] = edt_s['Nome'].astype(str).str.upper()
             salvar_dados(edt_s, edt_d, edt_f)
-            st.success("Todos os arquivos foram updated com sucesso!")
+            st.success("Todos os arquivos foram atualizados com sucesso!")
             st.rerun()
     elif senha != "":
         st.error("Senha incorreta. Acesso negado.")
 
 st.sidebar.markdown("---")
 st.sidebar.caption("🌐 **Informações do Sistema**")
-st.sidebar.caption("• **Versão:** 1.1.7 (Duplo Símbolo Oficial)")
+st.sidebar.caption("• **Versão:** 1.1.8 (Logo Única Centralizada)")
 st.sidebar.caption("• **Ano de Lançamento:** 2026")
 st.sidebar.caption("• **Idealização e Gestão:** Jacques Bras da Silva")
 st.sidebar.caption("• **Unidade:** E.E. Clovis de Lucca")
