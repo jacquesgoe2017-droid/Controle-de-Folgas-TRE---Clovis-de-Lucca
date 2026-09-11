@@ -3,20 +3,16 @@ import pandas as pd
 import os
 from datetime import datetime
 
-# Configuração inicial da página
 st.set_page_config(page_title="Controle TRE - GOE", page_icon="🎟️", layout="wide")
 st.title("🎟️ Sistema Web - Controle de Folgas TRE (Método PEPS)")
 
-# Importando as funções do outro arquivo
 from funcoes import inicializar_bancos, salvar_dados, gerar_pdf_certidao
 
-# Inicializa os arquivos de dados (CSV)
 df_servidores, df_declaracoes, df_folgas = inicializar_bancos()
 
-# Menu de navegação lateral
-opcao = st.sidebar.selectbox("Menu Principal", ["Painel de Saldos", "Gerenciar Servidores", "Lançar Declaração (Crédito)", "Registrar Folga (Débito)"])
+opcao = st.sidebar.selectbox("Menu Principal", ["Painel de Saldos", "Gerenciar Servidores", "Lançar Declaração (Crédito)", "Registrar Folga (Débito)", "Ajustes do Sistema ⚙️"])
 
-# 1. PAINEL DE SALDOS E CERTIDÕES
+# 1. PAINEL DE SALDOS
 if opcao == "Painel de Saldos":
     st.subheader("📊 Extrato Geral e Emissão de Documentos")
     if df_servidores.empty:
@@ -39,18 +35,36 @@ if opcao == "Painel de Saldos":
         
         st.markdown("---")
         st.subheader("🖨️ Emitir Declaração Oficial de Saldo")
-        servidores_ativos = df_servidores[df_servidores['Status'] == 'Ativo']['Nome'].tolist()
-        if servidores_ativos:
-            sel_certidao = st.selectbox("Escolha o servidor para gerar a folha em PDF", servidores_ativos)
-            cpf_certidao = df_servidores[df_servidores['Nome'] == sel_certidao]['CPF'].values[0]
-            saldo_certidao = df_declaracoes[df_declaracoes['CPF'] == cpf_certidao]['Saldo'].sum()
-            historico_contrib = df_declaracoes[df_declaracoes['CPF'] == cpf_certidao]
-            if st.button("Gerar Certidão em PDF"):
-                pdf_path = gerar_pdf_certidao(sel_certidao, cpf_certidao, saldo_certidao, historico_contrib)
-                with open(pdf_path, "rb") as pdf_file:
-                    st.download_button(label="⬇️ Baixar Declaração para Imprimir", data=pdf_file, file_name=f"Certidao_TRE_{cpf_certidao}.pdf", mime="application/pdf")
-        else:
-            st.warning("Nenhum funcionário ativo disponível.")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            assinante_opcoes = ["Jacques Bras da Silva", "Outro Funcionário / Agente"]
+            sel_assinante = st.selectbox("Quem está emitindo este documento?", assinante_opcoes)
+            
+            if sel_assinante == "Jacques Bras da Silva":
+                nome_responsavel = "Jacques Bras da Silva"
+                cargo_responsavel = "Gerente de Organização Escolar"
+            else:
+                nome_responsavel = st.text_input("Nome Completo do Emissor").strip()
+                cargo_responsavel = st.selectbox("Cargo do Emissor", ["Agente de Organização Escolar", "Diretor de Escola"])
+        
+        with col2:
+            servidores_ativos = df_servidores[df_servidores['Status'] == 'Ativo']['Nome'].tolist()
+            if servidores_ativos:
+                sel_certidao = st.selectbox("Escolha o servidor para gerar a folha em PDF", servidores_ativos)
+                cpf_certidao = df_servidores[df_servidores['Nome'] == sel_certidao]['CPF'].values[0]
+                saldo_certidao = df_declaracoes[df_declaracoes['CPF'] == cpf_certidao]['Saldo'].sum()
+                historico_contrib = df_declaracoes[df_declaracoes['CPF'] == cpf_certidao]
+                
+                if st.button("Gerar Certidão em PDF"):
+                    if not nome_responsavel:
+                        st.error("Por favor, preencha o nome do emissor.")
+                    else:
+                        pdf_path = gerar_pdf_certidao(sel_certidao, cpf_certidao, saldo_certidao, historico_contrib, nome_responsavel, cargo_responsavel)
+                        with open(pdf_path, "rb") as pdf_file:
+                            st.download_button(label="⬇️ Baixar Declaração para Imprimir", data=pdf_file, file_name=f"Certidao_TRE_{cpf_certidao}.pdf", mime="application/pdf")
+            else:
+                st.warning("Nenhum funcionário ativo disponível.")
 
 # 2. GERENCIAR SERVIDORES
 elif opcao == "Gerenciar Servidores":
@@ -104,7 +118,7 @@ elif opcao == "Lançar Declaração (Crédito)":
             salvar_dados(df_servidores, df_declaracoes, df_folgas)
             st.success("Crédito gravado!")
 
-# 4. REGISTRAR FOLGA (DÉBITO PEPS)
+# 4. REGISTRAR FOLGA
 elif opcao == "Registrar Folga (Débito)":
     st.subheader("➖ Registro de Usufruto de Folga")
     ativos = df_servidores[df_servidores['Status'] == 'Ativo']
@@ -125,3 +139,27 @@ elif opcao == "Registrar Folga (Débito)":
                 st.rerun()
             else:
                 st.error("Este servidor não possui saldo disponível.")
+
+# 5. AJUSTES DO SISTEMA
+elif opcao == "Ajustes do Sistema ⚙️":
+    st.subheader("🛠️ Área Administrativa (Edição de Lançamentos)")
+    senha = st.text_input("Digite a senha master para liberar as tabelas", type="password")
+    
+    if senha == "1234":
+        st.success("Acesso Liberado! Você pode alterar as planilhas abaixo diretamente na tela.")
+        
+        st.write("#### 1. Editar Cadastro de Servidores")
+        edt_s = st.data_editor(df_servidores, num_rows="dynamic", key="ed_s")
+        
+        st.write("#### 2. Editar Declarações (Créditos/Saldos)")
+        edt_d = st.data_editor(df_declaracoes, num_rows="dynamic", key="ed_d")
+        
+        st.write("#### 3. Editar Folgas Tiradas (Débitos)")
+        edt_f = st.data_editor(df_folgas, num_rows="dynamic", key="ed_f")
+        
+        if st.button("💾 Salvar Todas as Alterações"):
+            salvar_dados(edt_s, edt_d, edt_f)
+            st.success("Todos os arquivos foram atualizados com sucesso!")
+            st.rerun()
+    elif senha != "":
+        st.error("Senha incorreta. Acesso negado.")
