@@ -38,6 +38,13 @@ from funcoes import inicializar_bancos, salvar_dados, gerar_pdf_certidao, gerar_
 
 df_servidores, df_declaracoes, df_folgas = inicializar_bancos()
 
+# Função auxiliar para formatar CPF dinamicamente para o padrão XXX.XXX.XXX-XX
+def formatar_cpf(cpf_sujo):
+    nums = "".join(filter(str.isdigit, str(cpf_sujo)))
+    if len(nums) == 11:
+        return f"{nums[0:3]}.{nums[3:6]}.{nums[6:9]}-{nums[9:11]}"
+    return nums
+
 if not df_servidores.empty:
     df_servidores['Nome'] = df_servidores['Nome'].astype(str).str.upper()
 
@@ -53,9 +60,12 @@ if opcao == "Painel de Saldos":
         for idx, s in df_servidores.iterrows():
             creditos_totais = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == s['CPF']]['Direito']).sum()
             saldo_atual = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == s['CPF']]['Saldo']).sum()
-            debitos_totais = df_folgas[df_folgas['CPF'] == s['CPF']].shape[0]
+            debitos_totais = df_folgas[df_folgas['CPF'] == s['CPF']].shape
+            
+            # Garante a exibição formatada do CPF no painel visual
+            cpf_formatado = formatar_cpf(s['CPF'])
             resumo.append({
-                'CPF': s['CPF'], 'Nome': s['Nome'], 'Status': s['Status'],
+                'CPF': cpf_formatado, 'Nome': s['Nome'], 'Status': s['Status'],
                 'Total Conquistado': int(creditos_totais), 'Total Usufruído': int(debitos_totais), 'Saldo Disponível': int(saldo_atual)
             })
         df_resumo = pd.DataFrame(resumo)
@@ -94,16 +104,18 @@ if opcao == "Painel de Saldos":
             servidores_ativos = df_servidores[df_servidores['Status'] == 'Ativo']['Nome'].unique().tolist()
             if servidores_ativos:
                 sel_certidao = st.selectbox("Escolha o servidor para gerar a folha em PDF", servidores_ativos)
-                cpf_certidao = df_servidores[df_servidores['Nome'] == sel_certidao]['CPF'].values[0]
-                saldo_certidao = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == cpf_certidao]['Saldo']).sum()
-                historico_contrib = df_declaracoes[df_declaracoes['CPF'] == cpf_certidao]
+                cpf_bruto = df_servidores[df_servidores['Nome'] == sel_certidao]['CPF'].values
+                saldo_certidao = pd.to_numeric(df_declaracoes[df_declaracoes['CPF'] == cpf_bruto]['Saldo']).sum()
+                historico_contrib = df_declaracoes[df_declaracoes['CPF'] == cpf_bruto]
+                
                 if st.button("Gerar Certidão em PDF"):
                     if not nome_responsavel:
                         st.error("Por favor, preencha o nome do emissor.")
                     else:
-                        pdf_path = gerar_pdf_certidao(sel_certidao, cpf_certidao, int(saldo_certidao), historico_contrib, nome_responsavel, cargo_responsavel)
+                        cpf_bonito = formatar_cpf(cpf_bruto)
+                        pdf_path = gerar_pdf_certidao(sel_certidao, cpf_bonito, int(saldo_certidao), historico_contrib, nome_responsavel, cargo_responsavel)
                         with open(pdf_path, "rb") as pdf_file:
-                            st.download_button(label="⬇️ Baixar Declaração para Imprimir", data=pdf_file, file_name=f"Certidao_TRE_{cpf_certidao}.pdf", mime="application/pdf")
+                            st.download_button(label="⬇️ Baixar Declaração para Imprimir", data=pdf_file, file_name=f"Certidao_TRE_{cpf_bruto}.pdf", mime="application/pdf")
             else:
                 st.warning("Nenhum funcionário ativo disponível.")
 
@@ -111,12 +123,18 @@ if opcao == "Painel de Saldos":
 elif opcao == "Gerenciar Servidores":
     st.subheader("👥 Rotatividade de Funcionários")
     with st.expander("➕ Cadastrar Novo Servidor"):
-        n_cpf = st.text_input("CPF (Apenas números)").strip()
+        # Limpa letras e caracteres, pegando apenas números limpos para a validação
+        n_cpf_cru = st.text_input("CPF (Digite apenas os 11 números)").strip()
+        n_cpf = "".join(filter(str.isdigit, n_cpf_cru))
         n_nome = st.text_input("Nome Completo").strip().upper()
+        
         if st.button("Salvar Registro"):
             if n_cpf and n_nome:
-                if n_cpf in df_servidores['CPF'].astype(str).values:
-                    st.error("Este CPF já está cadastrado!")
+                # TRAVA DE SEGURANÇA: Impede CPFs com menos ou mais de 11 dígitos
+                if len(n_cpf) != 11:
+                    st.error("⚠️ Erro: O CPF deve conter exatamente 11 números.")
+                elif n_cpf in df_servidores['CPF'].astype(str).values:
+                    st.error("⚠️ Este CPF já está cadastrado!")
                 else:
                     nova = pd.DataFrame([{'CPF': n_cpf, 'Nome': n_nome, 'Status': 'Ativo'}])
                     df_servidores = pd.concat([df_servidores, nova], ignore_index=True)
@@ -124,11 +142,12 @@ elif opcao == "Gerenciar Servidores":
                     st.success(f"{n_nome} cadastrado com sucesso!")
                     st.rerun()
             else:
-                st.error("Preencha todos os campos.")
+                st.error("Por favor, preencha todos os campos.")
+                
     st.write("### Painel de Movimentação de Status")
     for idx, row in df_servidores.iterrows():
         c1, c2, c3 = st.columns(3)
-        c1.write(f"🏷️ **{row['Nome']}** (CPF: {row['CPF']})")
+        c1.write(f"🏷️ **{row['Nome']}** (CPF: {formatar_cpf(row['CPF'])})")
         c2.write("🟢 Ativo" if row['Status'] == 'Ativo' else "💤 Inativo")
         if row['Status'] == 'Ativo':
             if c3.button("Dormir 💤", key=f"d_{idx}"):
@@ -149,9 +168,8 @@ elif opcao == "Lançar DeclARAÇÃO (Crédito)":
     else:
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor", func_opcoes)
-        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values[0]
+        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values
         data_e = st.date_input("Data da Eleição", format="DD/MM/YYYY")
-        # FIXADO: Adicionadas as opções 2 e 4 dias na caixinha para o botão reaparecer
         qtd = st.selectbox("Dias de Direito", [2, 4])
         if st.button("Gravar Crédito"):
             data_formatada = data_e.strftime("%d/%m/%Y")
@@ -169,13 +187,13 @@ elif opcao == "Registrar Folga (Débito)":
     else:
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor que está tirando folga hoje", func_opcoes)
-        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values[0]
+        cpf_func = df_servidores[df_servidores['Nome'] == func]['CPF'].values
         data_f = st.date_input("Data do dia da folga gozada", format="DD/MM/YYYY")
         if st.button("Confirmar Baixa de 1 Dia"):
             df_declaracoes['Saldo'] = pd.to_numeric(df_declaracoes['Saldo'])
             indices = df_declaracoes[(df_declaracoes['CPF'] == str(cpf_func)) & (df_declaracoes['Saldo'] > 0)].index
             if len(indices) > 0:
-                idx_alvo = indices[0]
+                idx_alvo = indices
                 df_declaracoes.at[idx_alvo, 'Saldo'] -= 1
                 data_formatada = data_f.strftime("%d/%m/%Y")
                 nova = pd.DataFrame([{'CPF': str(cpf_func), 'Data_Folga': data_formatada}])
@@ -193,12 +211,10 @@ elif opcao == "Ajustes do Sistema ⚙️":
     if senha == "clovis":
         st.success("Acesso Liberado! Use o formato DD/MM/AAAA para alterar as datas.")
         
-        # FIXADO: Configuração estrita de tipos de texto e números para blindar contra o erro do data_editor
         config_colunas_s = {"CPF": st.column_config.TextColumn("CPF"), "Nome": st.column_config.TextColumn("Nome"), "Status": st.column_config.TextColumn("Status")}
         config_colunas_dec = {"CPF": st.column_config.TextColumn("CPF"), "Data_Eleicao": st.column_config.TextColumn("Data_Eleicao"), "Direito": st.column_config.NumberColumn("Direito"), "Saldo": st.column_config.NumberColumn("Saldo")}
         config_colunas_fol = {"CPF": st.column_config.TextColumn("CPF"), "Data_Folga": st.column_config.TextColumn("Data_Folga")}
         
-        # Converte as planilhas da memória para o formato compatível antes de exibir na tela
         df_servidores['CPF'] = df_servidores['CPF'].astype(str)
         df_declaracoes['CPF'] = df_declaracoes['CPF'].astype(str)
         df_declaracoes['Data_Eleicao'] = df_declaracoes['Data_Eleicao'].astype(str)
@@ -219,7 +235,7 @@ elif opcao == "Ajustes do Sistema ⚙️":
 
 st.sidebar.markdown("---")
 st.sidebar.caption("🌐 **Informações do Sistema**")
-st.sidebar.caption("• **Versão:** 1.1.2 (Estável Blindada)")
+st.sidebar.caption("• **Versão:** 1.1.3 (CPF Validado)")
 st.sidebar.caption("• **Ano de Lançamento:** 2026")
 st.sidebar.caption("• **Idealização e Gestão:** Jacques Bras da Silva")
 st.sidebar.caption("• **Unidade:** E.E. Clovis de Lucca")
