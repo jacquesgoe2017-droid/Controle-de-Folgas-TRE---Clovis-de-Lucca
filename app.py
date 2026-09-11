@@ -141,7 +141,7 @@ elif opcao == "Gerenciar Servidores":
                 df_servidores.at[idx, 'Status'] = 'Ativo'
                 salvar_dados(df_servidores, df_declaracoes, df_folgas)
                 st.rerun()
-
+                
 # 3. LANÇAR CRÉDITO
 elif opcao == "Lançar Declaração (Crédito)":
     st.subheader("➕ Entrada de Novas Declarações")
@@ -151,7 +151,8 @@ elif opcao == "Lançar Declaração (Crédito)":
     else:
         func_opcoes = ativos['Nome'].unique().tolist()
         func = st.selectbox("Selecione o Servidor", func_opcoes)
-        cpf_func = ativos[ativos['Nome'] == func]['CPF'].values[0]
+        cpf_func = ativos[ativos['Nome'] == func]['CPF'].values
+        # CORREÇÃO: Adicionado o seletor brasileiro de data e a lista com as opções [2, 4] dias
         data_e = st.date_input("Data da Eleição", format="DD/MM/YYYY")
         qtd = st.selectbox("Dias de Direito", [2, 4])
         if st.button("Gravar Crédito"):
@@ -159,8 +160,9 @@ elif opcao == "Lançar Declaração (Crédito)":
             nova = pd.DataFrame([{'CPF': cpf_func, 'Data_Eleicao': data_formatada, 'Direito': int(qtd), 'Saldo': int(qtd)}])
             df_declaracoes = pd.concat([df_declaracoes, nova], ignore_index=True)
             salvar_dados(df_servidores, df_declaracoes, df_folgas)
-            st.success("Crédito gravado!")
-            # 4. REGISTRAR FOLGA
+            st.success("Crédito gravado com sucesso!")
+
+# 4. REGISTRAR FOLGA
 elif opcao == "Registrar Folga (Débito)":
     st.subheader("➖ Registro de Usufruto de Folga")
     ativos = df_servidores[df_servidores['Status'] == 'Ativo']
