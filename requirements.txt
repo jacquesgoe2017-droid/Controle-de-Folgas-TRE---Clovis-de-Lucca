@@ -1,3 +1,5 @@
 streamlit
 pandas
 reportlab
+st-theme
+st-gsheets-connection
