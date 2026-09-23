@@ -15,7 +15,7 @@ def inicializar_conexao():
 
 # --- INICIALIZAR BANCOS (CARREGAR DO SUPABASE) ---
 def inicializar_bancos():
-    """Carrega as tabelas do Supabase e converte para DataFrames do Pandas"""
+    """Carrega as tabelas do Supabase, remove IDs de controle e converte para DataFrames do Pandas"""
     try:
         supabase = inicializar_conexao()
         
@@ -25,9 +25,7 @@ def inicializar_bancos():
         if df_servidores.empty:
             df_servidores = pd.DataFrame(columns=["CPF", "Nome", "Status"])
         else:
-            df_servidores = df_servidores.rename(columns={
-                'cpf': 'CPF', 'nome': 'Nome', 'status': 'Status'
-            })
+            df_servidores = df_servidores.rename(columns={'cpf': 'CPF', 'nome': 'Nome', 'status': 'Status'})
             
         # 2. Carrega Declarações (Créditos)
         res_declaracoes = supabase.table("declaracoes").select("*").execute()
@@ -35,9 +33,10 @@ def inicializar_bancos():
         if df_declaracoes.empty:
             df_declaracoes = pd.DataFrame(columns=["CPF", "Eleicao", "Direito", "Saldo"])
         else:
-            df_declaracoes = df_declaracoes.rename(columns={
-                'cpf': 'CPF', 'eleicao': 'Eleicao', 'direito': 'Direito', 'saldo': 'Saldo'
-            })
+            # Remove a coluna autoincremento do Supabase para não quebrar a lógica de duplicados do app.py
+            if 'id' in df_declaracoes.columns:
+                df_declaracoes = df_declaracoes.drop(columns=['id'])
+            df_declaracoes = df_declaracoes.rename(columns={'cpf': 'CPF', 'eleicao': 'Eleicao', 'direito': 'Direito', 'saldo': 'Saldo'})
             
         # 3. Carrega Folgas Gozadas (Débitos)
         res_folgas = supabase.table("folgas_gozadas").select("*").execute()
@@ -45,9 +44,9 @@ def inicializar_bancos():
         if df_folgas.empty:
             df_folgas = pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
         else:
-            df_folgas = df_folgas.rename(columns={
-                'cpf': 'CPF', 'data_gozo': 'Data_Gozo', 'quantidade': 'Quantidade'
-            })
+            if 'id' in df_folgas.columns:
+                df_folgas = df_folgas.drop(columns=['id'])
+            df_folgas = df_folgas.rename(columns={'cpf': 'CPF', 'data_gozo': 'Data_Gozo', 'quantidade': 'Quantidade'})
             
         return df_servidores, df_declaracoes, df_folgas
         
@@ -62,8 +61,8 @@ def inicializar_bancos():
 # --- ADAPTADOR INTELIGENTE COMPATÍVEL ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
-    Salva diretamente os novos registros e atualizações comparando o estado do app
-    com o que já está permanentemente inserido no Supabase.
+    Salva diretamente os novos registros no Supabase permitindo múltiplos lançamentos
+    idênticos para o mesmo funcionário na mesma eleição.
     """
     try:
         supabase = inicializar_conexao()
@@ -80,55 +79,36 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
         
         # 2. SALVAMENTO DE DECLARAÇÕES (CRÉDITOS)
         if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
-            res_banco = supabase.table("declaracoes").select("cpf, eleicao, direito, saldo").execute()
-            df_banco = pd.DataFrame(res_banco.data)
+            # Baixa a contagem atual do banco para saber se o usuário adicionou linhas novas no app.py
+            res_banco = supabase.table("declaracoes").select("cpf").execute()
+            total_banco = len(res_banco.data)
+            total_app = len(df_declaracoes)
             
-            for idx, row in df_declaracoes.iterrows():
-                cpf_str = str(row['CPF']).strip()
-                eleicao_str = str(row['Eleicao']).strip()
-                direito_int = int(row['Direito'])
-                saldo_int = int(row['Saldo'])
-                
-                ja_salvo = False
-                if not df_banco.empty:
-                    ja_salvo = not df_banco[
-                        (df_banco['cpf'] == cpf_str) & 
-                        (df_banco['eleicao'] == eleicao_str) & 
-                        (df_banco['direito'] == direito_int)
-                    ].empty
-                
-                if not ja_salvo:
+            # Se o app tiver mais linhas que o banco de dados, pegamos as últimas lançadas e gravamos direto
+            if total_app > total_banco:
+                linhas_novas = df_declaracoes.tail(total_app - total_banco)
+                for idx, row in lines_novas.iterrows():
                     dados_credito = {
-                        "cpf": cpf_str,
-                        "eleicao": eleicao_str,
-                        "direito": direito_int,
-                        "saldo": saldo_int
+                        "cpf": str(row['CPF']).strip(),
+                        "eleicao": str(row['Eleicao']).strip(),
+                        "direito": int(row['Direito']),
+                        "saldo": int(row['Saldo'])
                     }
                     supabase.table("declaracoes").insert(dados_credito).execute()
 
         # 3. SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
         if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
-            res_banco_folgas = supabase.table("folgas_gozadas").select("cpf, data_gozo, quantidade").execute()
-            df_banco_folgas = pd.DataFrame(res_banco_folgas.data)
+            res_banco_folgas = supabase.table("folgas_gozadas").select("cpf").execute()
+            total_banco_f = len(res_banco_folgas.data)
+            total_app_f = len(df_folgas)
             
-            for idx, row in df_folgas.iterrows():
-                cpf_str = str(row['CPF']).strip()
-                data_str = str(row['Data_Gozo']).strip()
-                qtd_int = int(row['Quantidade'])
-                
-                ja_salvo = False
-                if not df_banco_folgas.empty:
-                    ja_salvo = not df_banco_folgas[
-                        (df_banco_folgas['cpf'] == cpf_str) & 
-                        (df_banco_folgas['data_gozo'] == data_str) &
-                        (df_banco_folgas['quantidade'] == qtd_int)
-                    ].empty
-                
-                if not ja_salvo:
+            if total_app_f > total_banco_f:
+                linhas_novas_f = df_folgas.tail(total_app_f - total_banco_f)
+                for idx, row in linhas_novas_f.iterrows():
                     dados_debito = {
-                        "cpf": cpf_str,
-                        "data_gozo": data_str,
-                        "quantidade": qtd_int
+                        "cpf": str(row['CPF']).strip(),
+                        "data_gozo": str(row['Data_Gozo']).strip(),
+                        "quantidade": int(row['Quantidade'])
                     }
                     supabase.table("folgas_gozadas").insert(dados_debito).execute()
                     
@@ -195,21 +175,25 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     story.append(Paragraph("<b>Histórico de Convocações / Eleições Cadastradas:</b>", text_style))
     story.append(Spacer(1, 5))
     
-    historico_limpo = historico.rename(columns={'eleicao': 'Eleicao', 'direito': 'Direito', 'saldo': 'Saldo', 'Eleicao': 'Eleicao', 'Direito': 'Direito', 'Saldo': 'Saldo'})
-    
     dados_tabela = [[Paragraph("<b>Convocação / Eleição</b>", table_text), Paragraph("<b>Dias Conquistados</b>", table_text), Paragraph("<b>Saldo Atual</b>", table_text)]]
     
-    if not historico_limpo.empty:
-        for _, r in historico_limpo.iterrows():
+    if isinstance(historico, pd.DataFrame) and not historico.empty:
+        # Força mapeamento explícito ignorando maiúsculas/minúsculas do DataFrame para matar o 'nan'
+        for _, r in historico.iterrows():
+            # Tenta pegar por chave minúscula ou maiúscula adaptando dinamicamente
+            eleicao_val = r.get('Eleicao', r.get('eleicao', 'Convocação Registrada'))
+            direito_val = r.get('Direito', r.get('direito', 0))
+            saldo_val = r.get('Saldo', r.get('saldo', 0))
+            
             dados_tabela.append([
-                Paragraph(str(r['Eleicao']), table_text),
-                Paragraph(f"{int(r['Direito'])} dia(s)", table_text),
-                Paragraph(f"{int(r['Saldo'])} dia(s)", table_text)
+                Paragraph(str(eleicao_val), table_text),
+                Paragraph(f"{int(direito_val)} dia(s)", table_text),
+                Paragraph(f"{int(saldo_val)} dia(s)", table_text)
             ])
     else:
         dados_tabela.append([Paragraph("Nenhum registro discriminado encontrado.", table_text), Paragraph("-", table_text), Paragraph("-", table_text)])
         
-    t_hist = Table(dados_tabela, colWidths=[250, 110, 110])
+    t_hist = Table(dados_tabela, colWidths=[240, 130, 130])
     t_hist.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
