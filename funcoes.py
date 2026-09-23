@@ -58,66 +58,82 @@ def inicializar_bancos():
             pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
         )
 
-# --- ADAPTADOR INTELIGENTE DE GRAVAÇÃO SINCRONIZADA ---
+# --- ADAPTADOR INTELIGENTE DE GRAVAÇÃO COMPATÍVEL ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
-    Sincroniza os estados das tabelas locais do app.py direto para as tabelas reais do Supabase,
-    validando travas operacionais de datas futuras.
+    Sincroniza os estados exatos das tabelas do app.py com o banco de dados Supabase,
+    aplicando a trava de segurança para impedir o salvamento de folgas futuras.
     """
     try:
         supabase = inicializar_conexao()
-        hoje = date.today()
+        hoje_data = date.today()
         
-        # --- TRAVA RIGIDA PARA DATAS FUTURAS ---
-        if 'data_f' in st.session_state and st.session_state.data_f:
-            if st.session_state.data_f > hoje:
-                st.error(f"⚠️ Erro de Lançamento: Não é permitido registrar folgas em datas futuras ({st.session_state.data_f.strftime('%d/%m/%Y')}).")
-                return False
-
-        # 1. PROCESSAMENTO DE DECLARAÇÕES (CRÉDITOS)
-        if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
-            res_banco = supabase.table("declaracoes").select("cpf").execute()
-            total_banco = len(res_banco.data)
-            
-            # Se for um lançamento novo (crédito adicionado na tela)
-            if len(df_declaracoes) > total_banco:
-                linha_nova = df_declaracoes.iloc[-1]
-                txt_eleicao = str(linha_nova.get('Data_Eleicao', linha_nova.get('Eleicao', '')))
-                if not txt_eleicao or txt_eleicao.lower() == 'nan':
-                    txt_eleicao = hoje.strftime("%d/%m/%Y")
-                    
-                dados_credito = {
-                    "cpf": str(linha_nova['CPF']).strip(),
-                    "eleicao": txt_eleicao,
-                    "direito": int(linha_nova['Direito']),
-                    "saldo": int(linha_nova['Saldo'])
-                }
-                supabase.table("declaracoes").insert(dados_credito).execute()
-            else:
-                # Se as tabelas possuem o mesmo tamanho, atualiza os Saldos abatidos pelo débito do app.py
-                for idx, row in df_declaracoes.iterrows():
-                    cpf_str = str(row['CPF']).strip()
-                    eleicao_str = str(row.get('Data_Eleicao', row.get('Eleicao', '')))
-                    # Atualiza o saldo real cruzando CPF e Eleição correspondentes
-                    supabase.table("declaracoes").update({"saldo": int(row['Saldo'])}).eq("cpf", cpf_str).eq("eleicao", eleicao_str).execute()
-
-        # 2. PROCESSAMENTO DE FOLGAS GOZADAS (DÉBITOS)
+        # 1. PROCESSAMENTO E SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
         if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
             res_banco_f = supabase.table("folgas_gozadas").select("cpf").execute()
             total_banco_f = len(res_banco_f.data)
+            total_app_f = len(df_folgas)
             
-            if len(df_folgas) > total_banco_f:
+            # Identifica se uma nova linha de folga acabou de ser adicionada no formulário
+            if total_app_f > total_banco_f:
                 linha_nova_f = df_folgas.iloc[-1]
-                data_gozo_str = str(linha_nova_f.get('Data_Folga', linha_nova_f.get('Data_Gozo', '')))
-                if not data_gozo_str or data_gozo_str.lower() == 'nan':
-                    data_gozo_str = hoje.strftime("%d/%m/%Y")
-                    
+                data_gozo_str = str(linha_nova_f.get('Data_Folga', linha_nova_f.get('Data_Gozo', ''))).strip()
+                
+                # Conversão segura da string de data para validação do bloqueio futuro
+                try:
+                    data_objeto = datetime.strptime(data_gozo_str, "%d/%m/%Y").date()
+                except ValueError:
+                    try:
+                        data_objeto = datetime.strptime(data_gozo_str, "%Y-%m-%d").date()
+                    except ValueError:
+                        data_objeto = hoje_data
+                
+                # --- TRAVA CRÍTICA DE DATA FUTURA ---
+                if data_objeto > hoje_data:
+                    st.error(f"❌ Erro de Segurança: O lançamento foi cancelado! A data da folga ({data_gozo_str}) não pode ser maior que o dia de hoje.")
+                    return False
+                
+                # Se passou pela trava, faz a gravação na nuvem
                 dados_debito = {
                     "cpf": str(linha_nova_f['CPF']).strip(),
                     "data_gozo": data_gozo_str,
-                    "quantidade": 1 # Baixa padrão do app.py de 1 em 1 dia
+                    "quantidade": 1
                 }
                 supabase.table("folgas_gozadas").insert(dados_debito).execute()
+
+        # 2. PROCESSAMENTO E SALVAMENTO DE DECLARAÇÕES (CRÉDITOS / SALDOS ATUALIZADOS)
+        if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
+            res_banco = supabase.table("declaracoes").select("id, cpf, eleicao").execute()
+            df_banco_dados = pd.DataFrame(res_banco.data)
+            
+            for idx, row in df_declaracoes.iterrows():
+                cpf_str = str(row['CPF']).strip()
+                eleicao_str = str(row.get('Data_Eleicao', row.get('Eleicao', ''))).strip()
+                
+                # Garante que textos nulos/erros de memória virem uma informação compreensível
+                if not eleicao_str or eleicao_str.lower() == 'nan':
+                    eleicao_str = hoje_data.strftime("%d/%m/%Y")
+                
+                # Busca se a linha da declaração já existe no banco de dados real
+                id_registro_banco = None
+                if not df_banco_dados.empty:
+                    match = df_banco_dados[(df_banco_dados['cpf'] == cpf_str) & (df_banco_dados['eleicao'] == eleicao_str)]
+                    if not match.empty:
+                        id_registro_banco = match.iloc[0]['id']
+                
+                dados_credito = {
+                    "cpf": cpf_str,
+                    "eleicao": eleicao_str,
+                    "direito": int(row['Direito']),
+                    "saldo": int(row['Saldo'])
+                }
+                
+                # Se o registro já existir, apenas atualiza o Saldo (sincronizando o abatimento feito pelo app.py)
+                if id_registro_banco is not None:
+                    supabase.table("declaracoes").update({"saldo": int(row['Saldo'])}).eq("id", id_registro_banco).execute()
+                else:
+                    # Se for uma linha inteiramente nova, insere no banco
+                    supabase.table("declaracoes").insert(dados_credito).execute()
 
         # 3. SALVAMENTO E ATUALIZAÇÃO DE SERVIDORES
         if isinstance(df_servidores, pd.DataFrame) and not df_servidores.empty:
@@ -151,7 +167,7 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    t = Table(table_data, colWidths=[110, 195, 65, 55, 55, 60])
+    t = Table(table_data, colWidths=[110, 180, 60, 70, 70, 60])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
