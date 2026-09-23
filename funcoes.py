@@ -1,182 +1,144 @@
-import os
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from st_supabase_connection import SupabaseConnection
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_RIGHT
 from reportlab.lib import colors
-from reportlab.pdfgen import canvas
-from streamlit_gsheets import GSheetsConnection
+import os
 
-ARQUIVO_LOGO = "logo_escola.png"
+# --- CONEXÃO COM O SUPABASE ---
+def inicializar_conexao():
+    """Inicializa a conexão com o Supabase usando as chaves dos Secrets"""
+    return st.connection("supabase", type=SupabaseConnection)
 
-# --- CLASSE AUXILIAR PARA NUMERAÇÃO DE PÁGINAS DINÂMICA ---
-class NumberedCanvas(canvas.Canvas):
-    def __init__(self, *args, **kwargs):
-        canvas.Canvas.__init__(self, *args, **kwargs)
-        self._saved_page_states = []
-
-    def showPage(self):
-        self._saved_page_states.append(dict(self.__dict__))
-        self._startPage()
-
-    def save(self):
-        num_pages = len(self._saved_page_states)
-        for state in self._saved_page_states:
-            self.__dict__.update(state)
-            self.draw_page_number(num_pages)
-            canvas.Canvas.showPage(self)
-        canvas.Canvas.save(self)
-
-    def draw_page_number(self, page_count):
-        self.saveState()
-        self.setFont("Helvetica", 9)
-        self.setFillColor(colors.dimgrey)
-        
-        self.setLineWidth(0.5)
-        self.setStrokeColor(colors.lightgrey)
-        self.line(36, 45, letter[0] - 36, 45)
-        
-        texto_rodape = f"Controle de Folgas TRE - E.E. Clovis de Lucca | Emitido em {datetime.now().strftime('%d/%m/%Y')}"
-        texto_pagina = f"Página {self._pageNumber} de {page_count}"
-        
-        self.drawString(36, 32, texto_rodape)
-        self.drawRightString(letter[0] - 36, 32, texto_pagina)
-        self.restoreState()
-
-
-# --- CONEXÃO COM O GOOGLE SHEETS ---
+# --- INICIALIZAR BANCOS (CARREGAR DO SUPABASE) ---
 def inicializar_bancos():
+    """Carrega as tabelas do Supabase e converte para DataFrames do Pandas"""
     try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
+        supabase = inicializar_conexao()
         
-        df_s = conn.read(worksheet="servidores", dtype={'CPF': str})
-        df_d = conn.read(worksheet="declaracoes", dtype={'CPF': str})
-        df_f = conn.read(worksheet="folgas", dtype={'CPF': str})
+        # 1. Carrega Servidores
+        res_servidores = supabase.table("servidores").select("*").execute()
+        df_servidores = pd.DataFrame(res_servidores.data)
+        if df_servidores.empty:
+            df_servidores = pd.DataFrame(columns=["CPF", "Nome", "Status"])
+            
+        # 2. Carrega Declarações (Créditos)
+        res_declaracoes = supabase.table("declaracoes").select("*").execute()
+        df_declaracoes = pd.DataFrame(res_declaracoes.data)
+        if df_declaracoes.empty:
+            df_declaracoes = pd.DataFrame(columns=["CPF", "Eleicao", "Direito", "Saldo"])
+            
+        # 3. Carrega Folgas Gozadas (Débitos)
+        res_folgas = supabase.table("folgas_gozadas").select("*").execute()
+        df_folgas = pd.DataFrame(res_folgas.data)
+        if df_folgas.empty:
+            df_folgas = pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
+            
+        return df_servidores, df_declaracoes, df_folgas
         
-        # Garante a limpeza de colunas vazias fantasmas do Excel/Sheets
-        df_s = df_s.dropna(how="all").loc[:, ~df_s.columns.str.contains('^Unnamed')]
-        df_d = df_d.dropna(how="all").loc[:, ~df_d.columns.str.contains('^Unnamed')]
-        df_f = df_f.dropna(how="all").loc[:, ~df_f.columns.str.contains('^Unnamed')]
-    except Exception:
-        # Fallback caso as planilhas estejam totalmente limpas/iniciais
-        df_s = pd.DataFrame(columns=['CPF', 'Nome', 'Status'])
-        df_d = pd.DataFrame(columns=['CPF', 'Data_Eleicao', 'Direito', 'Saldo'])
-        df_f = pd.DataFrame(columns=['CPF', 'Data_Folga'])
-        
-    return df_s, df_d, df_f
+    except Exception as e:
+        st.error(f"Erro ao conectar com o banco de dados: {e}")
+        # Retorna estruturas vazias em caso de falha de conexão inicial
+        return (
+            pd.DataFrame(columns=["CPF", "Nome", "Status"]),
+            pd.DataFrame(columns=["CPF", "Eleicao", "Direito", "Saldo"]),
+            pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
+        )
 
+# --- FUNÇÃO GENÉRICA PARA SALVAR DADOS ---
+def salvar_dados(tabela, dados_dict):
+    """Insere um novo registro diretamente na tabela especificada do Supabase"""
+    try:
+        supabase = inicializar_conexao()
+        supabase.table(tabela).insert(dados_dict).execute()
+        st.success("Dados salvos permanentemente no Supabase!")
+        return True
+    except Exception as e:
+        st.error(f"Erro ao gravar dados no banco: {e}")
+        return False
 
-def salvar_dados(df_s, df_d, df_f):
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    
-    # Atualiza as três abas da planilha na nuvem
-    conn.update(worksheet="servidores", data=df_s)
-    conn.update(worksheet="declaracoes", data=df_d)
-    conn.update(worksheet="folgas", data=df_f)
-    st.cache_data.clear() # Limpa o cache para forçar a atualização visual no app
-
-
-# --- GERADORES DE PDF (MANTIDOS IGUAIS AO ORIGINAL) ---
-def gerar_pdf_certidao(nome, cpf, saldo, historico_creditos, nome_assinante, cargo_assinante):
-    filename = "certidao_folgas.pdf"
-    doc = SimpleDocTemplate(filename, pagesize=letter, rightMargin=54, leftMargin=54, topMargin=54, bottomMargin=54)
-    styles = getSampleStyleSheet()
-    
-    style_t = ParagraphStyle('T', fontName='Helvetica-Bold', fontSize=13, leading=16, alignment=TA_CENTER)
-    style_e = ParagraphStyle('E', fontName='Helvetica', fontSize=8, leading=14, alignment=TA_CENTER)
-    style_c = ParagraphStyle('C', fontName='Helvetica', fontSize=11, leading=17, alignment=TA_JUSTIFY)
-    style_d = ParagraphStyle('D', fontName='Helvetica', fontSize=11, leading=16, alignment=TA_RIGHT)
-    style_a = ParagraphStyle('A', fontName='Helvetica', fontSize=11, leading=16, alignment=TA_CENTER)
-    
+# --- GERADORES DE PDF (REPORTLAB) ---
+def gerar_pdf_lista_geral(df_resumo):
+    pdf_filename = "Relatorio_Saldos_Geral.pdf"
+    doc = SimpleDocTemplate(pdf_filename, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
     story = []
-    if os.path.exists(ARQUIVO_LOGO):
-        img = Image(ARQUIVO_LOGO, width=120, height=60)
-        img.hAlign = 'CENTER'
-        story.append(img)
-        story.append(Spacer(1, 12))
-        
-    story.extend([
-        Paragraph("<b>Secretaria de Estado da Educação</b>", style_t),
-        Paragraph("<b>Unidade Regional de Ensino de São Bernardo do Campo</b>", style_t),
-        Paragraph("<b>E.E. Clovis de Lucca</b>", style_t),
-        Paragraph("<b>Rua dos Vianas, 1915 - Baeta Neves - S.B. Campo - SP</b>", style_e),
-        Paragraph("<b>E-mail: <font color='navy'><u>e009124a@educacao.sp.gov.br</u></font> - Fone: 11 - 4332-6372</b>", style_e),
-        Spacer(1, 25),
-        Paragraph("<u><b>CERTIDÃO DE LIQUIDAÇÃO DE FOLGAS - TRE</b></u>", style_t),
-        Spacer(1, 30)
-    ])
     
-    dt_atual = datetime.now().strftime("%d/%m/%Y")
-    texto = f"Certifico, para os devidos fins de direito e regularização de prontuário, que o(a) servidor(a) <b>{nome.upper()}</b>, inscrito(a) no CPF sob o nº <b>{cpf}</b>, em exercício nesta unidade escolar, possui nesta data o saldo acumulado de <b>{saldo} dia(s) de folga</b> pendente(s) de usufruto, decorrente(s) de convocações pela Justiça Eleitoral (TRE), conforme previsto na legislação vigente."
-    story.append(Paragraph(texto, style_c))
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], alignment=1, spaceAfter=20, fontSize=16)
+    normal_center = ParagraphStyle('NormalCenter', parent=styles['Normal'], alignment=1, fontSize=10)
+    
+    story.append(Paragraph("<b>E.E. CLOVIS DE LUCCA</b>", title_style))
+    story.append(Paragraph("<b>Controle de Folgas TRE - Relatório Geral de Saldos</b>", title_style))
     story.append(Spacer(1, 15))
     
-    story.append(Paragraph("O saldo acima descrito é composto pelas seguintes movimentações e direitos ainda disponíveis:", style_c))
-    story.append(Spacer(1, 10))
-    
-    if len(historico_creditos) == 0 or saldo == 0:
-        story.append(Paragraph("- Não há créditos ou saldos pendentes registrados.", style_c))
-    else:
-        for _, row in historico_creditos.iterrows():
-            if row['Saldo'] > 0:
-                story.append(Paragraph(f"• Eleição em {row['Data_Eleicao']}: Direito a {row['Direito']} dias | <b>Saldo Restante: {row['Saldo']} dia(s)</b>", style_c))
-                
-    story.append(Spacer(1, 40))
-    texto_local = f"São Bernardo do Campo, {dt_atual}."
-    story.append(Paragraph(texto_local, style_d))
-    story.append(Spacer(1, 50))
-    
-    story.append(Paragraph("____________________________________________", style_a))
-    story.append(Paragraph(f"<b>{nome_assinante.upper()}</b>", style_a))
-    story.append(Paragraph(f"{cargo_assinante}", style_a))
-    doc.build(story)
-    return filename
-
-def gerar_pdf_lista_geral(df_resumo):
-    filename = "relatorio_saldos_geral.pdf"
-    doc = SimpleDocTemplate(filename, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=45, bottomMargin=60)
-    
-    style_t = ParagraphStyle('T', fontName='Helvetica-Bold', fontSize=13, leading=16, alignment=TA_CENTER)
-    style_e = ParagraphStyle('E', fontName='Helvetica', fontSize=8, leading=14, alignment=TA_CENTER)
-    style_th = ParagraphStyle('TH', fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=TA_CENTER)
-    style_td = ParagraphStyle('TD', fontName='Helvetica', fontSize=9, leading=12)
-    style_td_c = ParagraphStyle('TDC', fontName='Helvetica', fontSize=9, leading=12, alignment=TA_CENTER)
-    
-    story = []
-    if os.path.exists(ARQUIVO_LOGO):
-        img = Image(ARQUIVO_LOGO, width=100, height=50)
-        img.hAlign = 'CENTER'
-        story.append(img)
-        story.append(Spacer(1, 10))
+    table_data = [[Paragraph(f"<b>{col}</b>", normal_center) for col in df_resumo.columns]]
+    for idx, row in df_resumo.iterrows():
+        table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    story.extend([
-        Paragraph("<b>Secretaria de Estado da Educação</b>", style_t),
-        Paragraph("<b>Unidade Regional de Ensino de São Bernardo do Campo</b>", style_t),
-        Paragraph("<b>E.E. Clovis de Lucca</b>", style_t),
-        Paragraph("<b>Rua dos Vianas, 1915 - Baeta Neves - S.B. Campo - SP</b>", style_e),
-        Paragraph("<b>E-mail: <font color='navy'><u>e009124a@educacao.sp.gov.br</u></font> - Fone: 11 - 4332-6372</b>", style_e),
-        Spacer(1, 15),
-        Paragraph("<b>RELAÇÃO GERAL DE SALDOS DE FOLGAS - TRE</b>", style_t),
-        Spacer(1, 15)
-    ])
-    
-    data = [[Paragraph("<b>CPF</b>", style_th), Paragraph("<b>Nome do Servidor</b>", style_th), Paragraph("<b>Status</b>", style_th), Paragraph("<b>Total Conq.</b>", style_th), Paragraph("<b>Total Usuf.</b>", style_th), Paragraph("<b>Saldo Disponível</b>", style_th)]]
-    for _, row in df_resumo.iterrows():
-        data.append([Paragraph(str(row['CPF']), style_td_c), Paragraph(str(row['Nome']), style_td), Paragraph(str(row['Status']), style_td_c), Paragraph(str(row['Total Conquistado']), style_td_c), Paragraph(str(row['Total Usufruído']), style_td_c), Paragraph(f"<b>{row['Saldo Disponível']}</b>", style_td_c)])
-    
-    tabela = Table(data, colWidths=[90, 180, 50, 65, 65, 80])
-    tabela.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.gainsboro),
+    t = Table(table_data, colWidths=[90, 180, 60, 70, 70, 60])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
         ('TOPPADDING', (0,0), (-1,-1), 6),
         ('BOTTOMPADDING', (0,0), (-1,-1), 6),
     ]))
+    story.append(t)
+    doc.build(story)
+    return pdf_filename
+
+def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
+    pdf_filename = f"Certidao_TRE_{cpf.replace('.','').replace('-','')}.pdf"
+    doc = SimpleDocTemplate(pdf_filename, pagesize=letter, rightMargin=50, leftMargin=50, topMargin=50, bottomMargin=50)
+    story = []
     
-    story.append(tabela)
-    doc.build(story, canvasmaker=NumberedCanvas)
-    return filename
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('Title', parent=styles['Heading1'], alignment=1, fontSize=14, spaceAfter=30)
+    text_style = ParagraphStyle('Text', parent=styles['Normal'], alignment=4, fontSize=12, leading=18, spaceAfter=15)
+    sign_style = ParagraphStyle('Sign', parent=styles['Normal'], alignment=1, fontSize=11, leading=16)
+    
+    story.append(Paragraph("<b>ESTADO DE SÃO PAULO</b><br/>SECRETARIA DE ESTADO DA EDUCAÇÃO<br/><b>E.E. CLOVIS DE LUCCA</b>", sign_style))
+    story.append(Spacer(1, 30))
+    story.append(Paragraph("<b>DECLARAÇÃO DE SALDO - FOLGAS TRE</b>", title_style))
+    
+    data_hoje = datetime.now().strftime("%d de %B de %Y")
+    meses = {'January': 'janeiro', 'February': 'fevereiro', 'March': 'março', 'April': 'abril', 'May': 'maio', 'June': 'junho', 'July': 'julho', 'August': 'agosto', 'September': 'setembro', 'October': 'outubro', 'November': 'novembro', 'December': 'dezembro'}
+    for eng, pt in meses.items():
+        data_hoje = data_hoje.replace(eng, pt)
+        
+    texto = f"Declaramos para os devidos fins de direito e controle interno, que o(a) servidor(a) <b>{nome}</b>, inscrito(a) no CPF sob o nº <b>{cpf}</b>, conta atualmente com um saldo remanescente de <b>{saldo} dia(s)</b> de folga gerada(s) por serviços prestados à Justiça Eleitoral (TRE), estando apto(a) a usufruí-lo(s) mediante prévia anuência da direção escolar."
+    story.append(Paragraph(texto, text_style))
+    story.append(Spacer(1, 40))
+    
+    story.append(Paragraph(f"São Bernardo do Campo, {data_hoje}.", text_style))
+    story.append(Spacer(1, 60))
+    story.append(Paragraph(f"_______________________________________<br/><b>{emissor}</b><br/>{cargo}", sign_style))
+    
+    doc.build(story)
+    return pdf_filename
+-- Cria a tabela de servidores
+create table servidores (
+  cpf text primary key,
+  nome text not null,
+  status text not null default 'Ativo'
+);
+
+-- Cria a tabela de declaracoes (créditos)
+create table declaracoes (
+  id bigint generated always as identity primary key,
+  cpf text not null,
+  eleicao text not null,
+  direito int not null,
+  saldo int not null
+);
+
+-- Cria a tabela de folgas gozadas (débitos)
+create table folgas_gozadas (
+  id bigint generated always as identity primary key,
+  cpf text not null,
+  data_gozo date not null,
+  quantidade int not null default 1
+);
