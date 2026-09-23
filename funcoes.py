@@ -5,12 +5,18 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
+from datetime import datetime
 import os
 
 # --- CONEXÃO COM O SUPABASE ---
 def inicializar_conexao():
-    """Inicializa a conexão com o Supabase usando as chaves dos Secrets"""
-    return st.connection("supabase", type=SupabaseConnection)
+    """Inicializa a conexão com o Supabase usando as chaves globais dos Secrets"""
+    return st.connection(
+        "supabase",
+        type=SupabaseConnection,
+        url=st.secrets["SUPABASE_URL"],
+        key=st.secrets["SUPABASE_KEY"]
+    )
 
 # --- INICIALIZAR BANCOS (CARREGAR DO SUPABASE) ---
 def inicializar_bancos():
@@ -40,7 +46,6 @@ def inicializar_bancos():
         
     except Exception as e:
         st.error(f"Erro ao conectar com o banco de dados: {e}")
-        # Retorna estruturas vazias em caso de falha de conexão inicial
         return (
             pd.DataFrame(columns=["CPF", "Nome", "Status"]),
             pd.DataFrame(columns=["CPF", "Eleicao", "Direito", "Saldo"]),
@@ -77,7 +82,7 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    t = Table(table_data, colWidths=[90, 180, 60, 70, 70, 60])
+    t = Table(table_data)
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
