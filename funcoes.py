@@ -119,26 +119,3 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     
     doc.build(story)
     return pdf_filename
--- Cria a tabela de servidores
-create table servidores (
-  cpf text primary key,
-  nome text not null,
-  status text not null default 'Ativo'
-);
-
--- Cria a tabela de declaracoes (créditos)
-create table declaracoes (
-  id bigint generated always as identity primary key,
-  cpf text not null,
-  eleicao text not null,
-  direito int not null,
-  saldo int not null
-);
-
--- Cria a tabela de folgas gozadas (débitos)
-create table folgas_gozadas (
-  id bigint generated always as identity primary key,
-  cpf text not null,
-  data_gozo date not null,
-  quantidade int not null default 1
-);
