@@ -59,16 +59,16 @@ def inicializar_bancos():
             pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
         )
 
-# --- ADAPTADOR COMPATÍVEL COM O APP.PY ---
+# --- ADAPTADOR INTELIGENTE COMPATÍVEL ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
-    Recebe os DataFrames enviados pelo app.py, limpa para o formato do Supabase
-    e atualiza/insere os registros de forma definitiva.
+    Salva diretamente os novos registros e atualizações comparando o estado do app
+    com o que já está permanentemente inserido no Supabase.
     """
     try:
         supabase = inicializar_conexao()
         
-        # 1. ATUALIZAÇÃO / INSERÇÃO DE SERVIDORES
+        # 1. SALVAMENTO DE SERVIDORES
         if isinstance(df_servidores, pd.DataFrame) and not df_servidores.empty:
             for idx, row in df_servidores.iterrows():
                 dados_servidor = {
@@ -76,51 +76,59 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                     "nome": str(row['Nome']).strip().upper(),
                     "status": str(row['Status']).strip()
                 }
-                # O 'upsert' insere se não existir ou atualiza (o botão Dormir/Reativar) se já existir
                 supabase.table("servidores").upsert(dados_servidor, on_conflict="cpf").execute()
         
-        # 2. INSERÇÃO DE DECLARAÇÕES (CRÉDITOS)
+        # 2. SALVAMENTO DE DECLARAÇÕES (CRÉDITOS)
         if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
-            # Pega as declarações já salvas no Supabase para não duplicar
-            res_existentes = supabase.table("declaracoes").select("cpf, eleicao").execute()
-            df_existentes = pd.DataFrame(res_existentes.data)
+            res_banco = supabase.table("declaracoes").select("cpf, eleicao, direito, saldo").execute()
+            df_banco = pd.DataFrame(res_banco.data)
             
             for idx, row in df_declaracoes.iterrows():
                 cpf_str = str(row['CPF']).strip()
                 eleicao_str = str(row['Eleicao']).strip()
+                direito_int = int(row['Direito'])
+                saldo_int = int(row['Saldo'])
                 
-                # Só insere se for um registro novo que não estava no banco
-                ja_existe = False
-                if not df_existentes.empty:
-                    ja_existe = not df_existentes[(df_existentes['cpf'] == cpf_str) & (df_existentes['eleicao'] == eleicao_str)].empty
+                ja_salvo = False
+                if not df_banco.empty:
+                    ja_salvo = not df_banco[
+                        (df_banco['cpf'] == cpf_str) & 
+                        (df_banco['eleicao'] == eleicao_str) & 
+                        (df_banco['direito'] == direito_int)
+                    ].empty
                 
-                if not ja_existe:
+                if not ja_salvo:
                     dados_credito = {
                         "cpf": cpf_str,
                         "eleicao": eleicao_str,
-                        "direito": int(row['Direito']),
-                        "saldo": int(row['Saldo'])
+                        "direito": direito_int,
+                        "saldo": saldo_int
                     }
                     supabase.table("declaracoes").insert(dados_credito).execute()
 
-        # 3. INSERÇÃO DE FOLGAS (DÉBITOS)
+        # 3. SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
         if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
-            res_existentes_folgas = supabase.table("folgas_gozadas").select("cpf, data_gozo").execute()
-            df_existentes_folgas = pd.DataFrame(res_existentes_folgas.data)
+            res_banco_folgas = supabase.table("folgas_gozadas").select("cpf, data_gozo, quantidade").execute()
+            df_banco_folgas = pd.DataFrame(res_banco_folgas.data)
             
             for idx, row in df_folgas.iterrows():
                 cpf_str = str(row['CPF']).strip()
                 data_str = str(row['Data_Gozo']).strip()
+                qtd_int = int(row['Quantidade'])
                 
-                ja_existe = False
-                if not df_existentes_folgas.empty:
-                    ja_existe = not df_existentes_folgas[(df_existentes_folgas['cpf'] == cpf_str) & (df_existentes_folgas['data_gozo'] == data_str)].empty
+                ja_salvo = False
+                if not df_banco_folgas.empty:
+                    ja_salvo = not df_banco_folgas[
+                        (df_banco_folgas['cpf'] == cpf_str) & 
+                        (df_banco_folgas['data_gozo'] == data_str) &
+                        (df_banco_folgas['quantidade'] == qtd_int)
+                    ].empty
                 
-                if not ja_existe:
+                if not ja_salvo:
                     dados_debito = {
                         "cpf": cpf_str,
                         "data_gozo": data_str,
-                        "quantidade": int(row['Quantidade'])
+                        "quantidade": qtd_int
                     }
                     supabase.table("folgas_gozadas").insert(dados_debito).execute()
                     
@@ -128,7 +136,6 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     except Exception as e:
         st.error(f"Erro ao salvar dados no Supabase: {e}")
         return False
-
 # --- GERADORES DE PDF (REPORTLAB) ---
 def gerar_pdf_lista_geral(df_resumo):
     pdf_filename = "Relatorio_Saldos_Geral.pdf"
@@ -166,25 +173,56 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     story = []
     
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('Title', parent=styles['Heading1'], alignment=1, fontSize=14, spaceAfter=30)
-    text_style = ParagraphStyle('Text', parent=styles['Normal'], alignment=4, fontSize=12, leading=18, spaceAfter=15)
+    title_style = ParagraphStyle('Title', parent=styles['Heading1'], alignment=1, fontSize=14, spaceAfter=25)
+    text_style = ParagraphStyle('Text', parent=styles['Normal'], alignment=4, fontSize=11, leading=16, spaceAfter=12)
     sign_style = ParagraphStyle('Sign', parent=styles['Normal'], alignment=1, fontSize=11, leading=16)
+    table_text = ParagraphStyle('TableText', parent=styles['Normal'], alignment=1, fontSize=10)
     
     story.append(Paragraph("<b>ESTADO DE SÃO PAULO</b><br/>SECRETARIA DE ESTADO DA EDUCAÇÃO<br/><b>E.E. CLOVIS DE LUCCA</b>", sign_style))
-    story.append(Spacer(1, 30))
-    story.append(Paragraph("<b>DECLARAÇÃO DE SALDO - FOLGAS TRE</b>", title_style))
+    story.append(Spacer(1, 20))
+    story.append(Paragraph("<b>DECLARAÇÃO OFICIAL DE SALDO - FOLGAS TRE</b>", title_style))
     
     data_hoje = datetime.now().strftime("%d de %B de %Y")
     meses = {'January': 'janeiro', 'February': 'fevereiro', 'March': 'março', 'April': 'abril', 'May': 'maio', 'June': 'junho', 'July': 'julho', 'August': 'agosto', 'September': 'setembro', 'October': 'outubro', 'November': 'novembro', 'December': 'dezembro'}
     for eng, pt in meses.items():
         data_hoje = data_hoje.replace(eng, pt)
         
-    texto = f"Declaramos para os devidos fins de direito e controle interno, que o(a) servidor(a) <b>{nome}</b>, inscrito(a) no CPF sob o nº <b>{cpf}</b>, conta atualmente com um saldo remanescente de <b>{saldo} dia(s)</b> de folga gerada(s) por serviços prestados à Justiça Eleitoral (TRE), estando apto(a) a usufruí-lo(s) mediante prévia anuência da direção escolar."
+    texto = f"Declaramos para os devidos fins de direito e controle interno, que o(a) servidor(a) <b>{nome}</b>, inscrito(a) no CPF sob o nº <b>{cpf}</b>, conta atualmente com um saldo remanescente acumulado de <b>{saldo} dia(s)</b> de folga gerada(s) por serviços prestados à Justiça Eleitoral (TRE), estando apto(a) a usufruí-lo(s) mediante prévia anuência da direção escolar de acordo com a legislação vigente."
     story.append(Paragraph(texto, text_style))
-    story.append(Spacer(1, 40))
+    story.append(Spacer(1, 15))
     
+    # --- TABELA DE HISTÓRICO DISCRIMINADO ---
+    story.append(Paragraph("<b>Histórico de Convocações / Eleições Cadastradas:</b>", text_style))
+    story.append(Spacer(1, 5))
+    
+    historico_limpo = historico.rename(columns={'eleicao': 'Eleicao', 'direito': 'Direito', 'saldo': 'Saldo', 'Eleicao': 'Eleicao', 'Direito': 'Direito', 'Saldo': 'Saldo'})
+    
+    dados_tabela = [[Paragraph("<b>Convocação / Eleição</b>", table_text), Paragraph("<b>Dias Conquistados</b>", table_text), Paragraph("<b>Saldo Atual</b>", table_text)]]
+    
+    if not historico_limpo.empty:
+        for _, r in historico_limpo.iterrows():
+            dados_tabela.append([
+                Paragraph(str(r['Eleicao']), table_text),
+                Paragraph(f"{int(r['Direito'])} dia(s)", table_text),
+                Paragraph(f"{int(r['Saldo'])} dia(s)", table_text)
+            ])
+    else:
+        dados_tabela.append([Paragraph("Nenhum registro discriminado encontrado.", table_text), Paragraph("-", table_text), Paragraph("-", table_text)])
+        
+    t_hist = Table(dados_tabela, colWidths=[250, 110, 110])
+    t_hist.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+    ]))
+    story.append(t_hist)
+    
+    story.append(Spacer(1, 35))
     story.append(Paragraph(f"São Bernardo do Campo, {data_hoje}.", text_style))
-    story.append(Spacer(1, 60))
+    story.append(Spacer(1, 45))
     story.append(Paragraph(f"_______________________________________<br/><b>{emissor}</b><br/>{cargo}", sign_style))
     
     doc.build(story)
