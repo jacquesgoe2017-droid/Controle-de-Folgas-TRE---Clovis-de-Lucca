@@ -15,10 +15,10 @@ def inicializar_conexao():
 
 # --- INICIALIZAR BANCOS (CARREGAR DO SUPABASE) ---
 def inicializar_bancos():
-    """Carrega as tabelas do Supabase, remove os IDs e converte para DataFrames do Pandas"""
+    """Carrega as tabelas limpas do Supabase, matando qualquer cache travado no app.py"""
     try:
         supabase = inicializar_conexao()
-        st.cache_data.clear() # Força a limpeza de qualquer cache travado no navegador
+        st.cache_data.clear() # Limpa o cache para forçar o app.py a ler dados novos da nuvem
         
         # 1. Carrega Servidores
         res_servidores = supabase.table("servidores").select("*").execute()
@@ -59,55 +59,81 @@ def inicializar_bancos():
             pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
         )
 
-# --- ADAPTADOR DE GRAVAÇÃO DIRETA SEM SOBREPOSIÇÃO ---
+# --- ADAPTADOR DE GRAVAÇÃO BLINDADO ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
-    Salva os dados de forma idêntica e direta, pegando exclusivamente os valores 
-    contidos dentro das tabelas do app.py, matando o erro do congelamento de datas.
+    Salva os dados aplicando um filtro de inteligência: ignora duplicações fantasmas
+    geradas pelo recarregamento de tela do app.py e garante a consistência dos saldos.
     """
     try:
         supabase = inicializar_conexao()
+        hoje_data = date.today()
 
-        # 1. SALVAMENTO DE DECLARAÇÕES (CRÉDITOS)
-        if isinstance(df_declaracoes, pd.DataFrame):
-            # Limpa o banco para sincronizar com os dados exatos calculados na tela
-            supabase.table("declaracoes").delete().neq("cpf", "000").execute()
+        # 1. ATUALIZAÇÃO E SALVAMENTO DE DECLARAÇÕES (CRÉDITOS / SALDOS)
+        if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
+            # Baixa o histórico real que já estava na nuvem antes do clique atual
+            res_reais = supabase.table("declaracoes").select("cpf, eleicao, direito, saldo").execute()
+            df_reais = pd.DataFrame(res_reais.data)
             
-            if not df_declaracoes.empty:
-                lista_creditos = []
-                for idx, row in df_declaracoes.iterrows():
-                    # Captura estritamente o valor que o seu app.py guardou na coluna local
-                    e_txt = str(row.get('Data_Eleicao', row.get('Eleicao', ''))).strip()
-                    if not e_txt or e_txt.lower() == 'nan':
-                        e_txt = date.today().strftime("%d/%m/%Y")
-                        
-                    lista_creditos.append({
-                        "cpf": str(row['CPF']).strip(),
-                        "eleicao": e_txt,
-                        "direito": int(row['Direito']),
-                        "saldo": int(row['Saldo'])
+            lista_para_inserir = []
+            for idx, row in df_declaracoes.iterrows():
+                cpf_str = str(row['CPF']).strip()
+                eleicao_str = str(row.get('Data_Eleicao', row.get('Eleicao', ''))).strip()
+                if not eleicao_str or eleicao_str.lower() == 'nan':
+                    eleicao_str = hoje_data.strftime("%d/%m/%Y")
+                
+                direito_val = int(row['Direito'])
+                saldo_val = int(row['Saldo'])
+                
+                # CHECAGEM DE DUPLICIDADE ANTIFANTASMA:
+                # Se a linha que o app.py quer salvar já existia no banco real com os mesmos dias conquistados,
+                # nós apenas atualizamos o Saldo dela (para processar a folga tirada), impedindo que crie uma nova linha duplicada!
+                ja_existia_no_banco = False
+                if not df_reais.empty:
+                    match = df_reais[(df_reais['cpf'] == cpf_str) & (df_reais['eleicao'] == eleicao_str) & (df_reais['direito'] == direito_val)]
+                    if not match.empty:
+                        ja_existia_no_banco = True
+                
+                if ja_existia_no_banco:
+                    # Atualiza o saldo real daquela eleição específica (evita que o saldo fique errado na tela)
+                    supabase.table("declaracoes").update({"saldo": saldo_val}).eq("cpf", cpf_str).eq("eleicao", eleicao_str).eq("direito", direito_val).execute()
+                else:
+                    # Se for um clique de gravação de crédito inédito de verdade, adiciona na lista para inserir
+                    lista_para_inserir.append({
+                        "cpf": cpf_str,
+                        "eleicao": eleicao_str,
+                        "direito": direito_val,
+                        "saldo": saldo_val
                     })
-                if lista_creditos:
-                    supabase.table("declaracoes").insert(lista_creditos).execute()
-
-        # 2. SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
-        if isinstance(df_folgas, pd.DataFrame):
-            supabase.table("folgas_gozadas").delete().neq("cpf", "000").execute()
             
-            if not df_folgas.empty:
-                lista_debitos = []
-                for idx, row in df_folgas.iterrows():
-                    f_txt = str(row.get('Data_Folga', row.get('Data_Gozo', ''))).strip()
-                    if not f_txt or f_txt.lower() == 'nan':
-                        f_txt = date.today().strftime("%d/%m/%Y")
-                        
-                    lista_debitos.append({
-                        "cpf": str(row['CPF']).strip(),
+            if lista_para_inserir:
+                supabase.table("declaracoes").insert(lista_para_inserir).execute()
+
+        # 2. ATUALIZAÇÃO E SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
+        if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
+            res_folgas_reais = supabase.table("folgas_gozadas").select("cpf, data_gozo").execute()
+            df_f_reais = pd.DataFrame(res_folgas_reais.data)
+            
+            lista_folgas_novas = []
+            for idx, row in df_folgas.iterrows():
+                cpf_str = str(row['CPF']).strip()
+                f_txt = str(row.get('Data_Folga', row.get('Data_Gozo', ''))).strip()
+                if not f_txt or f_txt.lower() == 'nan':
+                    f_txt = hoje_data.strftime("%d/%m/%Y")
+                
+                # Impede duplicações de folga causadas por múltiplos cliques ou recarregamento
+                ja_gravada = False
+                if not df_f_reais.empty:
+                    ja_gravada = not df_f_reais[(df_f_reais['cpf'] == cpf_str) & (df_f_reais['data_gozo'] == f_txt)].empty
+                
+                if not ja_gravada:
+                    lista_folgas_novas.append({
+                        "cpf": cpf_str,
                         "data_gozo": f_txt,
                         "quantidade": 1
                     })
-                if lista_debitos:
-                    supabase.table("folgas_gozadas").insert(lista_debitos).execute()
+            if lista_folgas_novas:
+                supabase.table("folgas_gozadas").insert(lista_folgas_novas).execute()
 
         # 3. SALVAMENTO E ATUALIZAÇÃO DE SERVIDORES
         if isinstance(df_servidores, pd.DataFrame) and not df_servidores.empty:
@@ -121,7 +147,7 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 
         return True
     except Exception as e:
-        st.error(f"Erro operacional de gravação: {e}")
+        st.error(f"Erro na sincronização de segurança: {e}")
         return False
 # --- GERADORES DE PDF (REPORTLAB) ---
 def gerar_pdf_lista_geral(df_resumo):
@@ -141,7 +167,7 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    t = Table(table_data, colWidths=[100, 180, 60, 60, 60, 60])
+    t = Table(table_data, colWidths=[90, 200, 60, 90, 80, 90])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
@@ -200,7 +226,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     else:
         dados_tabela.append([Paragraph("Nenhum registro discriminado encontrado.", table_text), Paragraph("-", table_text), Paragraph("-", table_text)])
         
-    t_hist = Table(dados_tabela, colWidths=[260, 120, 120])
+    t_hist = Table(dados_tabela, colWidths=[240, 130, 130])
     t_hist.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
