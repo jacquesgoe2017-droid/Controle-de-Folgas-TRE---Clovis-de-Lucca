@@ -13,7 +13,6 @@ def inicializar_conexao():
     """Inicializa a conexão automática com o Supabase utilizando os Secrets oficiais"""
     return st.connection("supabase", type=SupabaseConnection)
 
-
 # --- INICIALIZAR BANCOS (CARREGAR DO SUPABASE) ---
 def inicializar_bancos():
     """Carrega as tabelas do Supabase e converte para DataFrames do Pandas"""
@@ -24,19 +23,31 @@ def inicializar_bancos():
         res_servidores = supabase.table("servidores").select("*").execute()
         df_servidores = pd.DataFrame(res_servidores.data)
         if df_servidores.empty:
-            df_servidores = pd.DataFrame(columns=["CPF", "Nome", "Status"])
+            df_servidores = pd.DataFrame(columns=["cpf", "nome", "status"])
+        else:
+            # Padroniza os nomes das colunas em maiúsculo para compatibilidade com o seu app.py
+            df_servidores.columns = ['CPF', 'Nome', 'Status']
             
         # 2. Carrega Declarações (Créditos)
         res_declaracoes = supabase.table("declaracoes").select("*").execute()
         df_declaracoes = pd.DataFrame(res_declaracoes.data)
         if df_declaracoes.empty:
-            df_declaracoes = pd.DataFrame(columns=["CPF", "Eleicao", "Direito", "Saldo"])
+            df_declaracoes = pd.DataFrame(columns=["id", "cpf", "eleicao", "direito", "saldo"])
+        
+        # Ajusta maiúsculas/minúsculas para bater com o app.py antigo
+        df_declaracoes = df_declaracoes.rename(columns={
+            'cpf': 'CPF', 'eleicao': 'Eleicao', 'direito': 'Direito', 'saldo': 'Saldo'
+        })
             
         # 3. Carrega Folgas Gozadas (Débitos)
         res_folgas = supabase.table("folgas_gozadas").select("*").execute()
         df_folgas = pd.DataFrame(res_folgas.data)
         if df_folgas.empty:
-            df_folgas = pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
+            df_folgas = pd.DataFrame(columns=["id", "cpf", "data_gozo", "quantidade"])
+            
+        df_folgas = df_folgas.rename(columns={
+            'cpf': 'CPF', 'data_gozo': 'Data_Gozo', 'quantidade': 'Quantidade'
+        })
             
         return df_servidores, df_declaracoes, df_folgas
         
@@ -48,16 +59,57 @@ def inicializar_bancos():
             pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
         )
 
-# --- FUNÇÃO GENÉRICA PARA SALVAR DADOS ---
-def salvar_dados(tabela, dados_dict):
-    """Insere um novo registro diretamente na tabela especificada do Supabase"""
+# --- ADAPTADOR INTELIGENTE PARA SALVAR DADOS ---
+def salvar_dados(*args, **kwargs):
+    """
+    Identifica automaticamente os dados gerados pelo formulário do app.py
+    e os direciona para a tabela correta no Supabase.
+    """
     try:
         supabase = inicializar_conexao()
-        supabase.table(tabela).insert(dados_dict).execute()
-        st.success("Dados salvos permanentemente no Supabase!")
-        return True
+        
+        # Verifica se o app.py enviou dados pelos formulários através do st.session_state ou variáveis de contexto
+        # Buscando dados do cadastro de Servidor
+        if 'novo_cpf' in st.session_state and st.session_state.novo_cpf:
+            dados = {
+                "cpf": str(st.session_state.novo_cpf).strip(),
+                "nome": str(st.session_state.novo_nome).strip().upper(),
+                "status": "Ativo"
+            }
+            supabase.table("servidores").insert(dados).execute()
+            st.success("Servidor cadastrado permanentemente no Supabase!")
+            return True
+            
+        # Buscando dados do lançamento de Declaração (Crédito)
+        elif 'decl_cpf' in st.session_state and st.session_state.decl_cpf:
+            dados = {
+                "cpf": str(st.session_state.decl_cpf).strip(),
+                "eleicao": str(st.session_state.decl_eleicao).strip(),
+                "direito": int(st.session_state.decl_direito),
+                "saldo": int(st.session_state.decl_direito) # Inicialmente o saldo é igual ao direito conquistado
+            }
+            supabase.table("declaracoes").insert(dados).execute()
+            st.success("Declaração de crédito salva permanentemente no Supabase!")
+            return True
+            
+        # Buscando dados do registro de Folga (Débito)
+        elif 'folga_cpf' in st.session_state and st.session_state.folga_cpf:
+            dados = {
+                "cpf": str(st.session_state.folga_cpf).strip(),
+                "data_gozo": str(st.session_state.folga_data),
+                "quantidade": int(st.session_state.folga_qtd)
+            }
+            supabase.table("folgas_gozadas").insert(dados).execute()
+            st.success("Uso de folga registrado permanentemente no Supabase!")
+            return True
+            
+        else:
+            # Caso o app use nomes diferentes de variáveis nas outras abas
+            st.warning("Formulário enviado, mas as variáveis de salvamento precisam ser mapeadas.")
+            return False
+            
     except Exception as e:
-        st.error(f"Erro ao gravar dados no banco: {e}")
+        st.error(f"Erro ao gravar dados no banco de dados: {e}")
         return False
 
 # --- GERADORES DE PDF (REPORTLAB) ---
@@ -110,7 +162,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     for eng, pt in meses.items():
         data_hoje = data_hoje.replace(eng, pt)
         
-    texto = f"Declaramos para os devidos fins de direito e controle interno, que o(a) servidor(a) <b>{nome}</b>, inscrito(a) no CPF sob o nº <b>{cpf}</b>, conta atualmente com um saldo remanescente de <b>{saldo} dia(s)</b> de folga gerada(s) por serviços prestados à Justiça Eleitoral (TRE), estando apto(a) a usufruí-lo(s) mediante prévia anuência da direção escolar."
+    texto = f"Declaramos para os devidos fins de direito e controle interno, que o(a) servidor(a) <b>{nome}</b>, inscrito(a) no CPF sob o nº <b>{cpf}</b>, conta atualmente com um saldo remanescente de <b>{saldo} dia(s)</b> de folga gerada(s) por services prestados à Justiça Eleitoral (TRE), estando apto(a) a usufruí-lo(s) mediante prévia anuência da direção escolar."
     story.append(Paragraph(texto, text_style))
     story.append(Spacer(1, 40))
     
