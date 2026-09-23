@@ -72,64 +72,63 @@ def inicializar_bancos():
             pd.DataFrame(columns=["CPF", "Data_Folga", "Quantidade"])
         )
 
-# --- ADAPTADOR DE GRAVAÇÃO COMPATÍVEL ANTI-DUPLICAÇÃO ---
+# --- ADAPTADOR DE GRAVAÇÃO BLINDADO ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
-    Sincroniza as tabelas impedindo de forma absoluta a duplicação de linhas antigas
-    que ficaram travadas no cache de memória do Streamlit Cloud.
+    Sincroniza os dados impedindo cliques fantasmas da data de hoje padrão 
+    de entrarem como créditos fantasmas sem o consentimento do operador.
     """
     try:
         supabase = inicializar_conexao()
-        hoje_data = date.today()
+        hoje_str = date.today().strftime("%d/%m/%Y")
 
-        # 1. SALVAMENTO DE DECLARAÇÕES (CRÉDITOS / SALDOS)
+        # 1. ATUALIZAÇÃO E SALVAMENTO DE DECLARAÇÕES (CRÉDITOS / SALDOS)
         if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
-            # Consulta em tempo real o que REALMENTE está salvo na nuvem agora
             res_reais = supabase.table("declaracoes").select("cpf, eleicao, direito, saldo").execute()
             df_reais = pd.DataFrame(res_reais.data)
             
-            lista_para_inserir = []
             for idx, row in df_declaracoes.iterrows():
                 cpf_str = str(row['CPF']).strip()
                 eleicao_str = str(row.get('Data_Eleicao', row.get('Eleicao', ''))).strip()
+                
+                # --- TRAVA ANTI-CLIQUE FANTASMA ---
+                # Se o sistema tentar enviar a data de hoje pura de fundo sem você ter digitado, o código aborta a linha intrusa
+                if eleicao_str == hoje_str and len(df_declaracoes) > 1 and idx == (len(df_declaracoes) - 1):
+                    continue
+                
                 if not eleicao_str or eleicao_str.lower() == 'nan':
-                    eleicao_str = hoje_data.strftime("%d/%m/%Y")
+                    continue
                 
                 direito_val = int(row['Direito'])
                 saldo_val = int(row['Saldo'])
                 
-                # Procura se essa combinação exata já existia fisicamente na nuvem
-                ja_existia_no_banco = False
+                ja_existe_no_banco = False
                 if not df_reais.empty:
                     match = df_reais[(df_reais['cpf'] == cpf_str) & (df_reais['eleicao'] == eleicao_str) & (df_reais['direito'] == direito_val)]
                     if not match.empty:
-                        ja_existia_no_banco = True
+                        ja_existe_no_banco = True
                 
-                if ja_existia_no_banco:
-                    # Se já existia, apenas sincroniza a atualização do saldo, nunca cria uma linha nova duplicada!
+                if ja_existe_no_banco:
                     supabase.table("declaracoes").update({"saldo": saldo_val}).eq("cpf", cpf_str).eq("eleicao", eleicao_str).eq("direito", direito_val).execute()
                 else:
-                    lista_para_inserir.append({
+                    dados_novos = {
                         "cpf": cpf_str,
                         "eleicao": eleicao_str,
                         "direito": direito_val,
                         "saldo": saldo_val
-                    })
-            
-            if lista_para_inserir:
-                supabase.table("declaracoes").insert(lista_para_inserir).execute()
+                    }
+                    supabase.table("declaracoes").insert(dados_novos).execute()
 
-        # 2. SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
+        # 2. ATUALIZAÇÃO E SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
         if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
             res_folgas_reais = supabase.table("folgas_gozadas").select("cpf, data_gozo").execute()
             df_f_reais = pd.DataFrame(res_folgas_reais.data)
             
-            lista_folgas_novas = []
             for idx, row in df_folgas.iterrows():
                 cpf_str = str(row['CPF']).strip()
                 f_txt = str(row.get('Data_Folga', row.get('Data_Gozo', ''))).strip()
                 if not f_txt or f_txt.lower() == 'nan':
-                    f_txt = hoje_data.strftime("%d/%m/%Y")
+                    f_txt = date.today().strftime("%d/%m/%Y")
                 
                 try:
                     data_formatada_eua = datetime.strptime(f_txt, "%d/%m/%Y").strftime("%Y-%m-%d")
@@ -137,20 +136,19 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                     try:
                         data_formatada_eua = datetime.strptime(f_txt, "%Y-%m-%d").strftime("%Y-%m-%d")
                     except ValueError:
-                        data_formatada_eua = hoje_data.strftime("%Y-%m-%d")
+                        data_formatada_eua = date.today().strftime("%Y-%m-%d")
                 
                 ja_gravada = False
                 if not df_f_reais.empty:
                     ja_gravada = not df_f_reais[(df_f_reais['cpf'] == cpf_str) & (df_f_reais['data_gozo'] == data_formatada_eua)].empty
                 
                 if not ja_gravada:
-                    lista_folgas_novas.append({
+                    dados_folga = {
                         "cpf": cpf_str,
                         "data_gozo": data_formatada_eua,
                         "quantidade": 1
-                    })
-            if lista_folgas_novas:
-                supabase.table("folgas_gozadas").insert(lista_folgas_novas).execute()
+                    }
+                    supabase.table("folgas_gozadas").insert(dados_folga).execute()
 
         # 3. SALVAMENTO E ATUALIZAÇÃO DE SERVIDORES
         if isinstance(df_servidores, pd.DataFrame) and not df_servidores.empty:
@@ -164,7 +162,7 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 
         return True
     except Exception as e:
-        st.error(f"Erro na sincronização das tabelas: {e}")
+        st.error(f"Erro na filtragem de segurança: {e}")
         return False
 # --- GERADORES DE PDF (REPORTLAB) ---
 def gerar_pdf_lista_geral(df_resumo):
@@ -184,7 +182,7 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    t = Table(table_data, colWidths=[60, 90, 200, 50, 50, 50])
+    t = Table(table_data, colWidths=[40, 95, 180, 50, 65, 55, 55])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
@@ -243,7 +241,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     else:
         dados_tabela.append([Paragraph("Nenhum registro discriminado encontrado.", table_text), Paragraph("-", table_text), Paragraph("-", table_text)])
         
-    t_hist = Table(dados_tabela, colWidths=[200, 150, 150])
+    t_hist = Table(dados_tabela, colWidths=[260, 120, 120])
     t_hist.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
