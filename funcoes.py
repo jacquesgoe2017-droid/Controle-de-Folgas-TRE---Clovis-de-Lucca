@@ -15,7 +15,7 @@ def inicializar_conexao():
 
 # --- INICIALIZAR BANCOS (CARREGAR DO SUPABASE) ---
 def inicializar_bancos():
-    """Carrega as tabelas do Supabase, garante nomes de colunas e limpa dados nulos"""
+    """Carrega as tabelas do Supabase, remove os IDs e converte para DataFrames do Pandas"""
     try:
         supabase = inicializar_conexao()
         
@@ -58,79 +58,34 @@ def inicializar_bancos():
             pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
         )
 
-# --- ADAPTADOR INTELIGENTE DE GRAVAÇÃO COMPATÍVEL ---
+# --- ADAPTADOR INTELIGENTE DE GRAVAÇÃO SINCRONIZADA ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
-    Intercepta as ações do app.py, valida datas futuras, processa a gravação
-    no Supabase e faz o abatimento automático dos saldos de folga.
+    Sincroniza os estados das tabelas locais do app.py direto para as tabelas reais do Supabase,
+    validando travas operacionais de datas futuras.
     """
     try:
         supabase = inicializar_conexao()
         hoje = date.today()
         
-        # 1. PROCESSAMENTO DE FOLGAS GOZADAS (DÉBITOS) COM VALIDAÇÕES CRÍTICAS
-        if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
-            res_banco_f = supabase.table("folgas_gozadas").select("cpf").execute()
-            total_banco_f = len(res_banco_f.data)
-            
-            if len(df_folgas) > total_banco_f:
-                linha_nova_f = df_folgas.iloc[-1]
-                data_gozo_str = str(linha_nova_f['Data_Gozo']).strip()
-                
-                # Converte e valida se a data do gozo está no futuro
-                try:
-                    data_gozo_obj = datetime.strptime(data_gozo_str, "%Y-%m-%d").date()
-                except ValueError:
-                    data_gozo_obj = hoje
-                    
-                if data_gozo_obj > hoje:
-                    st.error(f"⚠️ Erro de Lançamento: Não é permitido registrar folgas em datas futuras ({data_gozo_str}).")
-                    return False
-                
-                cpf_alvo = str(linha_nova_f['CPF']).strip()
-                qtd_descontar = int(linha_nova_f['Quantidade'])
-                
-                # Grava o débito da folga na nuvem
-                dados_debito = {"cpf": cpf_alvo, "data_gozo": data_gozo_str, "quantidade": qtd_descontar}
-                supabase.table("folgas_gozadas").insert(dados_debito).execute()
-                
-                # Executa o abatimento automático do saldo nas declarações ativas do funcionário
-                res_creditos = supabase.table("declaracoes").select("id, saldo").eq("cpf", cpf_alvo).gt("saldo", 0).order("id").execute()
-                if res_creditos.data:
-                    for credito in res_creditos.data:
-                        if qtd_descontar <= 0:
-                            break
-                        id_credito = credito['id']
-                        saldo_atual = int(credito['saldo'])
-                        
-                        if saldo_atual >= qtd_descontar:
-                            novo_saldo = saldo_atual - qtd_descontar
-                            qtd_descontar = 0
-                        else:
-                            qtd_descontar -= saldo_atual
-                            novo_saldo = 0
-                            
-                        supabase.table("declaracoes").update({"saldo": novo_saldo}).eq("id", id_credito).execute()
-                return True
+        # --- TRAVA RIGIDA PARA DATAS FUTURAS ---
+        if 'data_f' in st.session_state and st.session_state.data_f:
+            if st.session_state.data_f > hoje:
+                st.error(f"⚠️ Erro de Lançamento: Não é permitido registrar folgas em datas futuras ({st.session_state.data_f.strftime('%d/%m/%Y')}).")
+                return False
 
-        # 2. PROCESSAMENTO DE DECLARAÇÕES (CRÉDITOS)
+        # 1. PROCESSAMENTO DE DECLARAÇÕES (CRÉDITOS)
         if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
             res_banco = supabase.table("declaracoes").select("cpf").execute()
             total_banco = len(res_banco.data)
             
+            # Se for um lançamento novo (crédito adicionado na tela)
             if len(df_declaracoes) > total_banco:
                 linha_nova = df_declaracoes.iloc[-1]
-                
-                # Tenta capturar o nome exato digitado no formulário mapeando variáveis do app.py
-                txt_eleicao = str(linha_nova['Eleicao']).strip()
+                txt_eleicao = str(linha_nova.get('Data_Eleicao', linha_nova.get('Eleicao', '')))
                 if not txt_eleicao or txt_eleicao.lower() == 'nan':
-                    if 'eleicao_nome' in st.session_state:
-                        txt_eleicao = str(st.session_state.eleicao_nome).strip()
-                    elif 'nome_eleicao' in st.session_state:
-                        txt_eleicao = str(st.session_state.nome_eleicao).strip()
-                    else:
-                        txt_eleicao = f"Convocação - {hoje.strftime('%d/%m/%Y')}"
-                
+                    txt_eleicao = hoje.strftime("%d/%m/%Y")
+                    
                 dados_credito = {
                     "cpf": str(linha_nova['CPF']).strip(),
                     "eleicao": txt_eleicao,
@@ -138,7 +93,31 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                     "saldo": int(linha_nova['Saldo'])
                 }
                 supabase.table("declaracoes").insert(dados_credito).execute()
-                return True
+            else:
+                # Se as tabelas possuem o mesmo tamanho, atualiza os Saldos abatidos pelo débito do app.py
+                for idx, row in df_declaracoes.iterrows():
+                    cpf_str = str(row['CPF']).strip()
+                    eleicao_str = str(row.get('Data_Eleicao', row.get('Eleicao', '')))
+                    # Atualiza o saldo real cruzando CPF e Eleição correspondentes
+                    supabase.table("declaracoes").update({"saldo": int(row['Saldo'])}).eq("cpf", cpf_str).eq("eleicao", eleicao_str).execute()
+
+        # 2. PROCESSAMENTO DE FOLGAS GOZADAS (DÉBITOS)
+        if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
+            res_banco_f = supabase.table("folgas_gozadas").select("cpf").execute()
+            total_banco_f = len(res_banco_f.data)
+            
+            if len(df_folgas) > total_banco_f:
+                linha_nova_f = df_folgas.iloc[-1]
+                data_gozo_str = str(linha_nova_f.get('Data_Folga', linha_nova_f.get('Data_Gozo', '')))
+                if not data_gozo_str or data_gozo_str.lower() == 'nan':
+                    data_gozo_str = hoje.strftime("%d/%m/%Y")
+                    
+                dados_debito = {
+                    "cpf": str(linha_nova_f['CPF']).strip(),
+                    "data_gozo": data_gozo_str,
+                    "quantidade": 1 # Baixa padrão do app.py de 1 em 1 dia
+                }
+                supabase.table("folgas_gozadas").insert(dados_debito).execute()
 
         # 3. SALVAMENTO E ATUALIZAÇÃO DE SERVIDORES
         if isinstance(df_servidores, pd.DataFrame) and not df_servidores.empty:
@@ -172,8 +151,7 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    # Seta larguras fixas proporcionais para evitar erro de sintaxe
-    t = Table(table_data, colWidths=[40, 100, 200, 60, 60, 60, 60])
+    t = Table(table_data, colWidths=[110, 195, 65, 55, 55, 60])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
@@ -213,13 +191,13 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     story.append(Paragraph("<b>Histórico de Convocações / Eleições Cadastradas:</b>", text_style))
     story.append(Spacer(1, 5))
     
-    dados_tabela = [[Paragraph("<b>Convocação / Eleição</b>", table_text), Paragraph("<b>Dias Conquistados</b>", table_text), Paragraph("<b>Saldo Atual</b>", table_text)]]
+    dados_tabela = [[Paragraph("<b>Data da Eleição / Convocação</b>", table_text), Paragraph("<b>Dias Conquistados</b>", table_text), Paragraph("<b>Saldo Atual</b>", table_text)]]
     
     if isinstance(historico, pd.DataFrame) and not historico.empty:
         for _, r in historico.iterrows():
-            eleicao_val = r.get('Eleicao', r.get('eleicao', 'Convocação Registrada'))
-            direito_val = r.get('Direito', r.get('direito', 0))
-            saldo_val = r.get('Saldo', r.get('saldo', 0))
+            eleicao_val = r.get('Eleicao', r.get('Data_Eleicao', 'Convocação Registrada'))
+            direito_val = r.get('Direito', 0)
+            saldo_val = r.get('Saldo', 0)
             
             if str(eleicao_val).strip().lower() == 'nan' or not str(eleicao_val).strip():
                 eleicao_val = "Convocação Registrada"
@@ -232,8 +210,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     else:
         dados_tabela.append([Paragraph("Nenhum registro discriminado encontrado.", table_text), Paragraph("-", table_text), Paragraph("-", table_text)])
         
-    # Distribui 500 pontos de largura utilizável da folha letter entre as 3 colunas
-    t_hist = Table(dados_tabela, colWidths=[300, 100, 100])
+    t_hist = Table(dados_tabela, colWidths=[240, 130, 130])
     t_hist.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
