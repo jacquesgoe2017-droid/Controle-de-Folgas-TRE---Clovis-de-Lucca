@@ -61,84 +61,83 @@ def inicializar_bancos():
 # --- ADAPTADOR INTELIGENTE DE GRAVAÇÃO SINCRONIZADA ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
-    Sincroniza os estados das tabelas calculados pelo app.py direto na nuvem do Supabase,
-    validando travas estritas de texto para impedir créditos ou débitos futuros.
+    Sincroniza os estados das tabelas locais diretamente no Supabase,
+    aplicando travas antecipadas interceptando os calendários da interface.
     """
     try:
         supabase = inicializar_conexao()
         hoje_data = date.today()
 
-        # 1. VALIDAÇÃO E SALVAMENTO DE DECLARAÇÕES (CRÉDITOS)
-        if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
-            linha_ultima = df_declaracoes.iloc[-1]
-            eleicao_txt = str(linha_ultima.get('Data_Eleicao', linha_ultima.get('Eleicao', ''))).strip()
-            
-            # Converte a string brasileira (%d/%m/%Y) ou ISO de forma robusta
-            try:
-                data_credito = datetime.strptime(eleicao_txt, "%d/%m/%Y").date()
-            except ValueError:
-                try:
-                    data_credito = datetime.strptime(eleicao_txt, "%Y-%m-%d").date()
-                except ValueError:
-                    data_credito = hoje_data
-            
-            # --- TRAVA 1: TRAVAR CRÉDITO FUTURO ---
-            if data_credito > hoje_data:
-                st.error(f"❌ Erro Administrativo: Lançamento cancelado! A data da Eleição/Convocação ({eleicao_txt}) não pode ser uma data futura.")
-                st.info("O sistema foi reiniciado para limpar a memória local.")
-                st.button("Atualizar Tela 🔄", on_click=st.rerun)
+        # --- TRAVA ANTECIPADA 1: INTERCEPTA CALENDÁRIO DE REGISTRO DE FOLGA (DÉBITO) ---
+        # No seu app.py, o widget se chama data_f. Verificamos se ele foi usado e está no futuro.
+        if 'data_f' in st.session_state and st.session_state.data_f:
+            if st.session_state.data_f > hoje_data:
+                st.error(f"❌ Erro de Segurança: Registro cancelado! A data da folga ({st.session_state.data_f.strftime('%d/%m/%Y')}) não pode ser maior que o dia de hoje.")
+                st.info("A tela foi atualizada para manter a consistência do banco de dados.")
+                st.button("Resetar Sistema 🔄", on_click=st.rerun)
                 st.stop()
                 return False
 
-            # Se a data for válida, reconstrói sincronizadamente
-            supabase.table("declaracoes").delete().neq("cpf", "000").execute()
-            for idx, row in df_declaracoes.iterrows():
-                e_txt = str(row.get('Data_Eleicao', row.get('Eleicao', ''))).strip()
-                if not e_txt or e_txt.lower() == 'nan':
-                    e_txt = hoje_data.strftime("%d/%m/%Y")
-                    
-                dados_credito = {
-                    "cpf": str(row['CPF']).strip(),
-                    "eleicao": e_txt,
-                    "direito": int(row['Direito']),
-                    "saldo": int(row['Saldo'])
-                }
-                supabase.table("declaracoes").insert(dados_credito).execute()
+        # --- TRAVA ANTECIPADA 2: INTERCEPTA CALENDÁRIO DE LANÇAMENTO DE CRÉDITO ---
+        # No seu app.py, o widget se chama data_e. Verificamos se ele foi usado e está no futuro.
+        if 'data_e' in st.session_state and st.session_state.data_e:
+            if st.session_state.data_e > hoje_data:
+                st.error(f"❌ Erro Administrativo: Lançamento cancelado! A data da Eleição/Convocação ({st.session_state.data_e.strftime('%d/%m/%Y')}) não pode ser uma data futura.")
+                st.info("O sistema bloqueou a gravação e limpou a memória temporária.")
+                st.button("Resetar Sistema 🔄", on_click=st.rerun)
+                st.stop()
+                return False
 
-        # 2. VALIDAÇÃO E SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
+        # 1. PROCESSAMENTO E SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
         if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
-            linha_ultima_f = df_folgas.iloc[-1]
-            folga_txt = str(linha_ultima_f.get('Data_Folga', linha_ultima_f.get('Data_Gozo', ''))).strip()
+            res_banco_f = supabase.table("folgas_gozadas").select("cpf").execute()
+            total_banco_f = len(res_banco_f.data)
+            total_app_f = len(df_folgas)
             
-            try:
-                data_debito = datetime.strptime(folga_txt, "%d/%m/%Y").date()
-            except ValueError:
-                try:
-                    data_debito = datetime.strptime(folga_txt, "%Y-%m-%d").date()
-                except ValueError:
-                    data_debito = hoje_data
-            
-            # --- TRAVA 2: TRAVAR DÉBITO FUTURO ---
-            if data_debito > hoje_data:
-                st.error(f"❌ Erro de Segurança: O usufruto foi cancelado! A data da folga gozada ({folga_txt}) não pode ser uma data futura.")
-                st.info("O sistema foi reiniciado para impedir erros no saldo.")
-                st.button("Atualizar Tela 🔄", on_click=st.rerun)
-                st.stop()
-                return False
-
-            # Sincroniza os registros de folgas com a nuvem de forma correta
-            supabase.table("folgas_gozadas").delete().neq("cpf", "000").execute()
-            for idx, row in df_folgas.iterrows():
-                f_txt = str(row.get('Data_Folga', row.get('Data_Gozo', ''))).strip()
-                if not f_txt or f_txt.lower() == 'nan':
-                    f_txt = hoje_data.strftime("%d/%m/%Y")
-                    
+            # Se uma nova linha de folga foi gerada pelo clique válido do app.py, grava na nuvem
+            if total_app_f > total_banco_f:
+                linha_nova_f = df_folgas.iloc[-1]
+                data_gozo_str = str(linha_nova_f.get('Data_Folga', linha_nova_f.get('Data_Gozo', ''))).strip()
+                
                 dados_debito = {
-                    "cpf": str(row['CPF']).strip(),
-                    "data_gozo": f_txt,
+                    "cpf": str(linha_nova_f['CPF']).strip(),
+                    "data_gozo": data_gozo_str,
                     "quantidade": 1
                 }
                 supabase.table("folgas_gozadas").insert(dados_debito).execute()
+
+        # 2. PROCESSAMENTO E SALVAMENTO DE DECLARAÇÕES (CRÉDITOS / SALDOS)
+        if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
+            res_banco = supabase.table("declaracoes").select("id, cpf, eleicao").execute()
+            df_banco_dados = pd.DataFrame(res_banco.data)
+            
+            for idx, row in df_declaracoes.iterrows():
+                cpf_str = str(row['CPF']).strip()
+                eleicao_str = str(row.get('Data_Eleicao', row.get('Eleicao', ''))).strip()
+                
+                if not eleicao_str or eleicao_str.lower() == 'nan':
+                    eleicao_str = hoje_data.strftime("%d/%m/%Y")
+                
+                id_registro_banco = None
+                if not df_banco_dados.empty:
+                    # Encontra a linha correspondente usando CPF e Eleição
+                    match = df_banco_dados[(df_banco_dados['cpf'] == cpf_str) & (df_banco_dados['eleicao'] == eleicao_str)]
+                    if not match.empty:
+                        id_registro_banco = match.iloc[0]['id']
+                
+                dados_credito = {
+                    "cpf": cpf_str,
+                    "eleicao": eleicao_str,
+                    "direito": int(row['Direito']),
+                    "saldo": int(row['Saldo'])
+                }
+                
+                # Se a declaração já existe, apenas sincroniza a atualização do Saldo restante (PEPS)
+                if id_registro_banco is not None:
+                    supabase.table("declaracoes").update({"saldo": int(row['Saldo'])}).eq("id", id_registro_banco).execute()
+                else:
+                    # Se for uma linha nova gerada pelo formulário, insere no banco
+                    supabase.table("declaracoes").insert(dados_credito).execute()
 
         # 3. SALVAMENTO E ATUALIZAÇÃO DE SERVIDORES
         if isinstance(df_servidores, pd.DataFrame) and not df_servidores.empty:
@@ -172,7 +171,7 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    t = Table(table_data, colWidths=[110, 190, 55, 55, 55, 55])
+    t = Table(table_data, colWidths=[100, 180, 60, 60, 60, 60])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
