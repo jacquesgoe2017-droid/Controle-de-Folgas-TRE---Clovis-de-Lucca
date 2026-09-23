@@ -58,78 +58,55 @@ def inicializar_bancos():
             pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
         )
 
-# --- ADAPTADOR INTELIGENTE DE GRAVAÇÃO SINCRONIZADA ---
+# --- ADAPTADOR INTELIGENTE DE GRAVAÇÃO COMPATÍVEL ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
-    Sincroniza os estados das tabelas locais diretamente no Supabase,
-    aplicando filtros rígidos para apagar e barrar qualquer registro de data futura.
+    Sincroniza os estados exatos calculados pelo app.py diretamente na nuvem,
+    sem travas, agindo como um espelho direto da memória local.
     """
     try:
         supabase = inicializar_conexao()
         hoje_data = date.today()
-        houve_bloqueio = False
 
-        # 1. PROCESSAMENTO E FILTRAGEM DE DECLARAÇÕES (CRÉDITOS)
-        if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
-            lista_creditos_validos = []
-            
-            for idx, row in df_declaracoes.iterrows():
-                eleicao_txt = str(row.get('Data_Eleicao', row.get('Eleicao', ''))).strip()
-                
-                # Converte e checa se o lançamento está no futuro
-                try:
-                    data_credito = datetime.strptime(eleicao_txt, "%d/%m/%Y").date()
-                except ValueError:
-                    try:
-                        data_credito = datetime.strptime(eleicao_txt, "%Y-%m-%d").date()
-                    except ValueError:
-                        data_credito = hoje_data
-                
-                # Se for maior que hoje, barra e marca para exibir o aviso vermelho
-                if data_credito > hoje_data:
-                    houve_bloqueio = True
-                    continue # Descarta a linha futura
-                
-                lista_creditos_validos.append({
-                    "cpf": str(row['CPF']).strip(),
-                    "eleicao": eleicao_txt if eleicao_txt and eleicao_txt.lower() != 'nan' else hoje_data.strftime("%d/%m/%Y"),
-                    "direito": int(row['Direito']),
-                    "saldo": int(row['Saldo'])
-                })
-            
-            # Reconstrói a tabela do banco apenas com os créditos permitidos (passado/presente)
+        # 1. ATUALIZAÇÃO E SALVAMENTO DE DECLARAÇÕES (CRÉDITOS / SALDOS)
+        if isinstance(df_declaracoes, pd.DataFrame):
+            # Limpa e reconstrói de forma idêntica à tabela da tela
             supabase.table("declaracoes").delete().neq("cpf", "000").execute()
-            if lista_creditos_validos:
-                supabase.table("declaracoes").insert(lista_creditos_validos).execute()
-
-        # 2. PROCESSAMENTO E FILTRAGEM DE FOLGAS GOZADAS (DÉBITOS)
-        if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
-            lista_debitos_validos = []
             
-            for idx, row in df_folgas.iterrows():
-                folga_txt = str(row.get('Data_Folga', row.get('Data_Gozo', ''))).strip()
-                
-                try:
-                    data_debito = datetime.strptime(folga_txt, "%d/%m/%Y").date()
-                except ValueError:
-                    try:
-                        data_debito = datetime.strptime(folga_txt, "%Y-%m-%d").date()
-                    except ValueError:
-                        data_debito = hoje_data
-                
-                if data_debito > hoje_data:
-                    houve_bloqueio = True
-                    continue # Descarta o usufruto futuro
-                
-                lista_debitos_validos.append({
-                    "cpf": str(row['CPF']).strip(),
-                    "data_gozo": folga_txt if folga_txt and folga_txt.lower() != 'nan' else hoje_data.strftime("%d/%m/%Y"),
-                    "quantidade": 1
-                })
-                
+            if not df_declaracoes.empty:
+                lista_creditos = []
+                for idx, row in df_declaracoes.iterrows():
+                    e_txt = str(row.get('Data_Eleicao', row.get('Eleicao', ''))).strip()
+                    if not e_txt or e_txt.lower() == 'nan':
+                        e_txt = hoje_data.strftime("%d/%m/%Y")
+                        
+                    lista_creditos.append({
+                        "cpf": str(row['CPF']).strip(),
+                        "eleicao": e_txt,
+                        "direito": int(row['Direito']),
+                        "saldo": int(row['Saldo'])
+                    })
+                if lista_creditos:
+                    supabase.table("declaracoes").insert(lista_creditos).execute()
+
+        # 2. ATUALIZAÇÃO E SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
+        if isinstance(df_folgas, pd.DataFrame):
             supabase.table("folgas_gozadas").delete().neq("cpf", "000").execute()
-            if lista_debitos_validos:
-                supabase.table("folgas_gozadas").insert(lista_debitos_validos).execute()
+            
+            if not df_folgas.empty:
+                lista_debitos = []
+                for idx, row in df_folgas.iterrows():
+                    f_txt = str(row.get('Data_Folga', row.get('Data_Gozo', ''))).strip()
+                    if not f_txt or f_txt.lower() == 'nan':
+                        f_txt = hoje_data.strftime("%d/%m/%Y")
+                        
+                    lista_debitos.append({
+                        "cpf": str(row['CPF']).strip(),
+                        "data_gozo": f_txt,
+                        "quantidade": 1
+                    })
+                if lista_debitos:
+                    supabase.table("folgas_gozadas").insert(lista_debitos).execute()
 
         # 3. SALVAMENTO E ATUALIZAÇÃO DE SERVIDORES
         if isinstance(df_servidores, pd.DataFrame) and not df_servidores.empty:
@@ -140,18 +117,10 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                     "status": str(row['Status']).strip()
                 }
                 supabase.table("servidores").upsert(dados_servidor, on_conflict="cpf").execute()
-        
-        # Exibe o alerta vermelho na tela caso o usuário tenha tentado colocar uma data futura
-        if houve_bloqueio:
-            st.error("❌ Bloqueio de Segurança: Lançamentos com datas futuras foram rejeitados pelo banco de dados do TRE!")
-            st.info("O sistema limpou a memória local. Clique no botão abaixo para atualizar as tabelas de saldos.")
-            st.button("Atualizar Painel 🔄", on_click=st.rerun)
-            st.stop()
-            return False
                 
         return True
     except Exception as e:
-        st.error(f"Erro operacional no banco de dados: {e}")
+        st.error(f"Erro operacional de sincronização: {e}")
         return False
 # --- GERADORES DE PDF (REPORTLAB) ---
 def gerar_pdf_lista_geral(df_resumo):
@@ -171,7 +140,7 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    t = Table(table_data, colWidths=[90, 180, 60, 60, 60, 60])
+    t = Table(table_data, colWidths=[90, 200, 60, 60, 60, 60])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
@@ -230,7 +199,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     else:
         dados_tabela.append([Paragraph("Nenhum registro discriminado encontrado.", table_text), Paragraph("-", table_text), Paragraph("-", table_text)])
         
-    t_hist = Table(dados_tabela, colWidths=[240, 130, 130])
+    t_hist = Table(dados_tabela, colWidths=[260, 120, 120])
     t_hist.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
