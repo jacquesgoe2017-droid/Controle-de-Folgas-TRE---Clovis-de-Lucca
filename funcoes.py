@@ -62,18 +62,18 @@ def inicializar_bancos():
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
     Sincroniza os estados das tabelas calculados pelo app.py direto na nuvem do Supabase,
-    validando travas para impedir o lançamento de créditos ou débitos futuros.
+    validando travas estritas de texto para impedir créditos ou débitos futuros.
     """
     try:
         supabase = inicializar_conexao()
         hoje_data = date.today()
 
-        # 1. COMPATIBILIZAÇÃO E SALVAMENTO DE DECLARAÇÕES (CRÉDITOS)
+        # 1. VALIDAÇÃO E SALVAMENTO DE DECLARAÇÕES (CRÉDITOS)
         if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
-            # Pega a última linha adicionada para checar a validade da regra institucional
             linha_ultima = df_declaracoes.iloc[-1]
             eleicao_txt = str(linha_ultima.get('Data_Eleicao', linha_ultima.get('Eleicao', ''))).strip()
             
+            # Converte a string brasileira (%d/%m/%Y) ou ISO de forma robusta
             try:
                 data_credito = datetime.strptime(eleicao_txt, "%d/%m/%Y").date()
             except ValueError:
@@ -82,13 +82,16 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 except ValueError:
                     data_credito = hoje_data
             
-            # --- TRAVA 1: IMPEDIR CRÉDITO NO FUTURO ---
+            # --- TRAVA 1: TRAVAR CRÉDITO FUTURO ---
             if data_credito > hoje_data:
-                st.error(f"❌ Erro Administrativo: O crédito não foi salvo! A data da Eleição/Convocação ({eleicao_txt}) não pode ser uma data futura.")
+                st.error(f"❌ Erro Administrativo: Lançamento cancelado! A data da Eleição/Convocação ({eleicao_txt}) não pode ser uma data futura.")
+                st.info("O sistema foi reiniciado para limpar a memória local.")
+                st.button("Atualizar Tela 🔄", on_click=st.rerun)
+                st.stop()
                 return False
 
-            # Se passou na trava, limpa e reconstrói a tabela de declarações refletindo a matemática e o PEPS do app.py
-            supabase.table("declaracoes").delete().neq("cpf", "000").execute() # Limpeza segura para sincronia
+            # Se a data for válida, reconstrói sincronizadamente
+            supabase.table("declaracoes").delete().neq("cpf", "000").execute()
             for idx, row in df_declaracoes.iterrows():
                 e_txt = str(row.get('Data_Eleicao', row.get('Eleicao', ''))).strip()
                 if not e_txt or e_txt.lower() == 'nan':
@@ -102,7 +105,7 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 }
                 supabase.table("declaracoes").insert(dados_credito).execute()
 
-        # 2. COMPATIBILIZAÇÃO E SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
+        # 2. VALIDAÇÃO E SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
         if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
             linha_ultima_f = df_folgas.iloc[-1]
             folga_txt = str(linha_ultima_f.get('Data_Folga', linha_ultima_f.get('Data_Gozo', ''))).strip()
@@ -115,12 +118,15 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 except ValueError:
                     data_debito = hoje_data
             
-            # --- TRAVA 2: IMPEDIR DÉBITO NO FUTURO ---
+            # --- TRAVA 2: TRAVAR DÉBITO FUTURO ---
             if data_debito > hoje_data:
-                st.error(f"❌ Erro de Segurança: O usufruto foi cancelado! A data da folga gozada ({folga_txt}) não pode ser maior que o dia de hoje.")
+                st.error(f"❌ Erro de Segurança: O usufruto foi cancelado! A data da folga gozada ({folga_txt}) não pode ser uma data futura.")
+                st.info("O sistema foi reiniciado para impedir erros no saldo.")
+                st.button("Atualizar Tela 🔄", on_click=st.rerun)
+                st.stop()
                 return False
 
-            # Sincroniza os registros de folgas com a nuvem
+            # Sincroniza os registros de folgas com a nuvem de forma correta
             supabase.table("folgas_gozadas").delete().neq("cpf", "000").execute()
             for idx, row in df_folgas.iterrows():
                 f_txt = str(row.get('Data_Folga', row.get('Data_Gozo', ''))).strip()
@@ -166,7 +172,7 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    t = Table(table_data, colWidths=[110, 190, 60, 60, 60, 60])
+    t = Table(table_data, colWidths=[110, 190, 55, 55, 55, 55])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
@@ -225,7 +231,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     else:
         dados_tabela.append([Paragraph("Nenhum registro discriminado encontrado.", table_text), Paragraph("-", table_text), Paragraph("-", table_text)])
         
-    t_hist = Table(dados_tabela, colWidths=[240, 130, 130])
+    t_hist = Table(dados_tabela, colWidths=[260, 120, 120])
     t_hist.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
