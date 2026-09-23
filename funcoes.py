@@ -58,10 +58,10 @@ def inicializar_bancos():
             pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
         )
 
-# --- ADAPTADOR INTELIGENTE CORRIGIDO (SALVAMENTO COMPATÍVEL) ---
+# --- ADAPTADOR INTELIGENTE DE GRAVAÇÃO COMPATÍVEL ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
-    Intercipta as ações do app.py, valida datas futuras, processa a gravação
+    Intercepta as ações do app.py, valida datas futuras, processa a gravação
     no Supabase e faz o abatimento automático dos saldos de folga.
     """
     try:
@@ -77,7 +77,7 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 linha_nova_f = df_folgas.iloc[-1]
                 data_gozo_str = str(linha_nova_f['Data_Gozo']).strip()
                 
-                # Converte e valida estritamente se a data do gozo está no futuro
+                # Converte e valida se a data do gozo está no futuro
                 try:
                     data_gozo_obj = datetime.strptime(data_gozo_str, "%Y-%m-%d").date()
                 except ValueError:
@@ -121,7 +121,7 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
             if len(df_declaracoes) > total_banco:
                 linha_nova = df_declaracoes.iloc[-1]
                 
-                # Tenta capturar o nome exato digitado no formulário mapeando variáveis comuns do app.py
+                # Tenta capturar o nome exato digitado no formulário mapeando variáveis do app.py
                 txt_eleicao = str(linha_nova['Eleicao']).strip()
                 if not txt_eleicao or txt_eleicao.lower() == 'nan':
                     if 'eleicao_nome' in st.session_state:
@@ -172,7 +172,8 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    t = Table(table_data)
+    # Seta larguras fixas proporcionais para evitar erro de sintaxe
+    t = Table(table_data, colWidths=[40, 100, 200, 60, 60, 60, 60])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
@@ -231,7 +232,8 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     else:
         dados_tabela.append([Paragraph("Nenhum registro discriminado encontrado.", table_text), Paragraph("-", table_text), Paragraph("-", table_text)])
         
-    t_hist = Table(dados_tabela, colWidths=)
+    # Distribui 500 pontos de largura utilizável da folha letter entre as 3 colunas
+    t_hist = Table(dados_tabela, colWidths=[300, 100, 100])
     t_hist.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
