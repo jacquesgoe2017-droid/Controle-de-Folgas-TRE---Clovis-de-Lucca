@@ -25,7 +25,6 @@ def inicializar_bancos():
         if df_servidores.empty:
             df_servidores = pd.DataFrame(columns=["CPF", "Nome", "Status"])
         else:
-            # Renomeia para garantir compatibilidade com as maiúsculas do app.py
             df_servidores = df_servidores.rename(columns={
                 'cpf': 'CPF', 'nome': 'Nome', 'status': 'Status'
             })
@@ -36,7 +35,6 @@ def inicializar_bancos():
         if df_declaracoes.empty:
             df_declaracoes = pd.DataFrame(columns=["CPF", "Eleicao", "Direito", "Saldo"])
         else:
-            # Renomeia para garantir compatibilidade com as maiúsculas do app.py
             df_declaracoes = df_declaracoes.rename(columns={
                 'cpf': 'CPF', 'eleicao': 'Eleicao', 'direito': 'Direito', 'saldo': 'Saldo'
             })
@@ -47,7 +45,6 @@ def inicializar_bancos():
         if df_folgas.empty:
             df_folgas = pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
         else:
-            # Renomeia para garantir compatibilidade com as maiúsculas do app.py
             df_folgas = df_folgas.rename(columns={
                 'cpf': 'CPF', 'data_gozo': 'Data_Gozo', 'quantidade': 'Quantidade'
             })
@@ -62,56 +59,74 @@ def inicializar_bancos():
             pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
         )
 
-# --- ADAPTADOR INTELIGENTE PARA SALVAR DADOS ---
-def salvar_dados(*args, **kwargs):
+# --- ADAPTADOR COMPATÍVEL COM O APP.PY ---
+def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
-    Identifica automaticamente os dados gerados pelo formulário do app.py
-    e os direciona para a tabela correta no Supabase.
+    Recebe os DataFrames enviados pelo app.py, limpa para o formato do Supabase
+    e atualiza/insere os registros de forma definitiva.
     """
     try:
         supabase = inicializar_conexao()
         
-        # Verifica se o app.py enviou dados pelos formulários através do st.session_state
-        # Buscando dados do cadastro de Servidor
-        if 'novo_cpf' in st.session_state and st.session_state.novo_cpf:
-            dados = {
-                "cpf": str(st.session_state.novo_cpf).strip(),
-                "nome": str(st.session_state.novo_nome).strip().upper(),
-                "status": "Ativo"
-            }
-            supabase.table("servidores").insert(dados).execute()
-            st.success("Servidor cadastrado permanentemente no Supabase!")
-            return True
+        # 1. ATUALIZAÇÃO / INSERÇÃO DE SERVIDORES
+        if isinstance(df_servidores, pd.DataFrame) and not df_servidores.empty:
+            for idx, row in df_servidores.iterrows():
+                dados_servidor = {
+                    "cpf": str(row['CPF']).strip(),
+                    "nome": str(row['Nome']).strip().upper(),
+                    "status": str(row['Status']).strip()
+                }
+                # O 'upsert' insere se não existir ou atualiza (o botão Dormir/Reativar) se já existir
+                supabase.table("servidores").upsert(dados_servidor, on_conflict="cpf").execute()
+        
+        # 2. INSERÇÃO DE DECLARAÇÕES (CRÉDITOS)
+        if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
+            # Pega as declarações já salvas no Supabase para não duplicar
+            res_existentes = supabase.table("declaracoes").select("cpf, eleicao").execute()
+            df_existentes = pd.DataFrame(res_existentes.data)
             
-        # Buscando dados do lançamento de Declaração (Crédito)
-        elif 'decl_cpf' in st.session_state and st.session_state.decl_cpf:
-            dados = {
-                "cpf": str(st.session_state.decl_cpf).strip(),
-                "eleicao": str(st.session_state.decl_eleicao).strip(),
-                "direito": int(st.session_state.decl_direito),
-                "saldo": int(st.session_state.decl_direito)
-            }
-            supabase.table("declaracoes").insert(dados).execute()
-            st.success("Declaração de crédito salva permanentemente no Supabase!")
-            return True
+            for idx, row in df_declaracoes.iterrows():
+                cpf_str = str(row['CPF']).strip()
+                eleicao_str = str(row['Eleicao']).strip()
+                
+                # Só insere se for um registro novo que não estava no banco
+                ja_existe = False
+                if not df_existentes.empty:
+                    ja_existe = not df_existentes[(df_existentes['cpf'] == cpf_str) & (df_existentes['eleicao'] == eleicao_str)].empty
+                
+                if not ja_existe:
+                    dados_credito = {
+                        "cpf": cpf_str,
+                        "eleicao": eleicao_str,
+                        "direito": int(row['Direito']),
+                        "saldo": int(row['Saldo'])
+                    }
+                    supabase.table("declaracoes").insert(dados_credito).execute()
+
+        # 3. INSERÇÃO DE FOLGAS (DÉBITOS)
+        if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
+            res_existentes_folgas = supabase.table("folgas_gozadas").select("cpf, data_gozo").execute()
+            df_existentes_folgas = pd.DataFrame(res_existentes_folgas.data)
             
-        # Buscando dados do registro de Folga (Débito)
-        elif 'folga_cpf' in st.session_state and st.session_state.folga_cpf:
-            dados = {
-                "cpf": str(st.session_state.folga_cpf).strip(),
-                "data_gozo": str(st.session_state.folga_data),
-                "quantidade": int(st.session_state.folga_qtd)
-            }
-            supabase.table("folgas_gozadas").insert(dados).execute()
-            st.success("Uso de folga registrado permanentemente no Supabase!")
-            return True
-            
-        else:
-            st.warning("Formulário enviado, mas as variáveis de salvamento precisam ser mapeadas.")
-            return False
-            
+            for idx, row in df_folgas.iterrows():
+                cpf_str = str(row['CPF']).strip()
+                data_str = str(row['Data_Gozo']).strip()
+                
+                ja_existe = False
+                if not df_existentes_folgas.empty:
+                    ja_existe = not df_existentes_folgas[(df_existentes_folgas['cpf'] == cpf_str) & (df_existentes_folgas['data_gozo'] == data_str)].empty
+                
+                if not ja_existe:
+                    dados_debito = {
+                        "cpf": cpf_str,
+                        "data_gozo": data_str,
+                        "quantidade": int(row['Quantidade'])
+                    }
+                    supabase.table("folgas_gozadas").insert(dados_debito).execute()
+                    
+        return True
     except Exception as e:
-        st.error(f"Erro ao gravar dados no banco de dados: {e}")
+        st.error(f"Erro ao salvar dados no Supabase: {e}")
         return False
 
 # --- GERADORES DE PDF (REPORTLAB) ---
