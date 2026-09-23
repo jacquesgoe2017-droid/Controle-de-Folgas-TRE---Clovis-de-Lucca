@@ -195,8 +195,17 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     sign_style = ParagraphStyle('Sign', parent=styles['Normal'], alignment=1, fontSize=11, leading=16)
     table_text = ParagraphStyle('TableText', parent=styles['Normal'], alignment=1, fontSize=10)
     
+       # --- CABEÇALHO DA CERTIDÃO COM LOGOTIPO SEGURO ---
+    from reportlab.platypus import Image as RLImage
+    if os.path.exists("logo_escola.png"):
+        try:
+            story.append(RLImage("logo_escola.png", width=55, height=55))
+            story.append(Spacer(1, 12))
+        except Exception:
+            pass
+            
     story.append(Paragraph("<b>ESTADO DE SÃO PAULO</b><br/>SECRETARIA DE ESTADO DA EDUCAÇÃO<br/><b>E.E. CLOVIS DE LUCCA</b>", sign_style))
-    story.append(Spacer(1, 20))
+    story.append(Spacer(1, 15))
     story.append(Paragraph("<b>DECLARAÇÃO OFICIAL DE SALDO - FOLGAS TRE</b>", title_style))
     
     data_hoje = datetime.now().strftime("%d de %B de %Y")
