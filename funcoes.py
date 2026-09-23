@@ -33,7 +33,6 @@ def inicializar_bancos():
         if df_declaracoes.empty:
             df_declaracoes = pd.DataFrame(columns=["CPF", "Eleicao", "Direito", "Saldo"])
         else:
-            # Remove a coluna autoincremento do Supabase para não quebrar a lógica de duplicados do app.py
             if 'id' in df_declaracoes.columns:
                 df_declaracoes = df_declaracoes.drop(columns=['id'])
             df_declaracoes = df_declaracoes.rename(columns={'cpf': 'CPF', 'eleicao': 'Eleicao', 'direito': 'Direito', 'saldo': 'Saldo'})
@@ -58,11 +57,11 @@ def inicializar_bancos():
             pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
         )
 
-# --- ADAPTADOR INTELIGENTE COMPATÍVEL ---
+# --- ADAPTADOR INTELIGENTE CORRIGIDO ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
     Salva diretamente os novos registros no Supabase permitindo múltiplos lançamentos
-    idênticos para o mesmo funcionário na mesma eleição.
+    idênticos para o mesmo funcionário na mesma eleição de forma incremental.
     """
     try:
         supabase = inicializar_conexao()
@@ -79,15 +78,14 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
         
         # 2. SALVAMENTO DE DECLARAÇÕES (CRÉDITOS)
         if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
-            # Baixa a contagem atual do banco para saber se o usuário adicionou linhas novas no app.py
             res_banco = supabase.table("declaracoes").select("cpf").execute()
             total_banco = len(res_banco.data)
             total_app = len(df_declaracoes)
             
-            # Se o app tiver mais linhas que o banco de dados, pegamos as últimas lançadas e gravamos direto
+            # CORREÇÃO DA VARIÁVEL: Identifica e salva estritamente as linhas recém-adicionadas no fim
             if total_app > total_banco:
                 linhas_novas = df_declaracoes.tail(total_app - total_banco)
-                for idx, row in lines_novas.iterrows():
+                for idx, row in linhas_novas.iterrows():
                     dados_credito = {
                         "cpf": str(row['CPF']).strip(),
                         "eleicao": str(row['Eleicao']).strip(),
@@ -178,13 +176,15 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     dados_tabela = [[Paragraph("<b>Convocação / Eleição</b>", table_text), Paragraph("<b>Dias Conquistados</b>", table_text), Paragraph("<b>Saldo Atual</b>", table_text)]]
     
     if isinstance(historico, pd.DataFrame) and not historico.empty:
-        # Força mapeamento explícito ignorando maiúsculas/minúsculas do DataFrame para matar o 'nan'
         for _, r in historico.iterrows():
-            # Tenta pegar por chave minúscula ou maiúscula adaptando dinamicamente
             eleicao_val = r.get('Eleicao', r.get('eleicao', 'Convocação Registrada'))
             direito_val = r.get('Direito', r.get('direito', 0))
             saldo_val = r.get('Saldo', r.get('saldo', 0))
             
+            # Trata se o valor em si guardado no banco vier como string 'nan' ou vazio
+            if str(eleicao_val).strip().lower() == 'nan' or not str(eleicao_val).strip():
+                eleicao_val = "Convocação Registrada"
+                
             dados_tabela.append([
                 Paragraph(str(eleicao_val), table_text),
                 Paragraph(f"{int(direito_val)} dia(s)", table_text),
