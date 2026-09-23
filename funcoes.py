@@ -239,3 +239,5 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     
     doc.build(story)
     return pdf_filename
+
+
