@@ -171,7 +171,7 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    t = Table(table_data, colWidths=[100, 200, 80, 50, 50, 50])
+    t = Table(table_data, colWidths=[40, 100, 200, 50, 50, 50, 50])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
@@ -215,26 +215,35 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     
     if isinstance(historico, pd.DataFrame) and not historico.empty:
         df_ordenado_pdf = historico.copy()
-        df_ordenado_pdf = df_ordenado_pdf.rename(columns={'eleicao': 'Eleicao', 'direito': 'Direito', 'saldo': 'Saldo', 'Data_Eleicao': 'Eleicao'})
         
+        # Garante tratamento de nomes de colunas sem misturar objetos do Pandas
+        if 'Data_Eleicao' in df_ordenado_pdf.columns:
+            df_ordenado_pdf['Eleicao_Limpa'] = df_ordenado_pdf['Data_Eleicao'].astype(str)
+        elif 'Eleicao' in df_ordenado_pdf.columns:
+            df_ordenado_pdf['Eleicao_Limpa'] = df_ordenado_pdf['Eleicao'].astype(str)
+        else:
+            df_ordenado_pdf['Eleicao_Limpa'] = "Convocação Registrada"
+            
+        # Força ordenação cronológica PEPS legítima
         try:
-            df_ordenado_pdf['dt_ordem'] = pd.to_datetime(df_ordenado_pdf['Eleicao'], format='%d/%m/%Y', errors='coerce')
+            df_ordenado_pdf['dt_ordem'] = pd.to_datetime(df_ordenado_pdf['Eleicao_Limpa'], format='%d/%m/%Y', errors='coerce')
             df_ordenado_pdf = df_ordenado_pdf.sort_values(by='dt_ordem', ascending=True).drop(columns=['dt_ordem'])
         except Exception:
             pass
             
         for _, r in df_ordenado_pdf.iterrows():
-            eleicao_val = r.get('Eleicao', 'Convocação Registrada')
-            direito_val = r.get('Direito', 0)
-            saldo_val = r.get('Saldo', 0)
+            # Extração de valores em formato primitivo de texto/int (evita vazamento de Series/dtype)
+            eleicao_val = str(r['Eleicao_Limpa']).strip()
+            direito_val = int(r.get('Direito', 0))
+            saldo_val = int(r.get('Saldo', 0))
             
-            if str(eleicao_val).strip().lower() == 'nan' or not str(eleicao_val).strip():
+            if eleicao_val.lower() == 'nan' or not eleicao_val:
                 eleicao_val = "Convocação Registrada"
                 
             dados_tabela.append([
-                Paragraph(str(eleicao_val), table_text),
-                Paragraph(f"{int(direito_val)} dia(s)", table_text),
-                Paragraph(f"{int(saldo_val)} dia(s)", table_text)
+                Paragraph(eleicao_val, table_text),
+                Paragraph(f"{direito_val} dia(s)", table_text),
+                Paragraph(f"{saldo_val} dia(s)", table_text)
             ])
     else:
         dados_tabela.append([Paragraph("Nenhum registro discriminado encontrado.", table_text), Paragraph("-", table_text), Paragraph("-", table_text)])
