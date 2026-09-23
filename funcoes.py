@@ -48,7 +48,6 @@ def inicializar_bancos():
             if 'id' in df_folgas.columns:
                 df_folgas = df_folgas.drop(columns=['id'])
                 
-            # Converte a data do formato do banco (AAAA-MM-DD) de volta para texto brasileiro para o painel do app.py ler
             lista_folgas_br = []
             for _, item in df_folgas.iterrows():
                 dt_banco = str(item['data_gozo']).strip()
@@ -73,11 +72,11 @@ def inicializar_bancos():
             pd.DataFrame(columns=["CPF", "Data_Folga", "Quantidade"])
         )
 
-# --- ADAPTADOR DE GRAVAÇÃO COMPATÍVEL COM DATA TIPO 'DATE' ---
+# --- ADAPTADOR DE GRAVAÇÃO COMPATÍVEL ANTI-DUPLICAÇÃO ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
-    Sincroniza as tabelas locais convertendo as strings brasileiras em datas
-    válidas do padrão internacional exigido pela coluna 'date' do Supabase.
+    Sincroniza as tabelas impedindo de forma absoluta a duplicação de linhas antigas
+    que ficaram travadas no cache de memória do Streamlit Cloud.
     """
     try:
         supabase = inicializar_conexao()
@@ -85,6 +84,7 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
 
         # 1. SALVAMENTO DE DECLARAÇÕES (CRÉDITOS / SALDOS)
         if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
+            # Consulta em tempo real o que REALMENTE está salvo na nuvem agora
             res_reais = supabase.table("declaracoes").select("cpf, eleicao, direito, saldo").execute()
             df_reais = pd.DataFrame(res_reais.data)
             
@@ -98,13 +98,15 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 direito_val = int(row['Direito'])
                 saldo_val = int(row['Saldo'])
                 
-                ja_existia = False
+                # Procura se essa combinação exata já existia fisicamente na nuvem
+                ja_existia_no_banco = False
                 if not df_reais.empty:
                     match = df_reais[(df_reais['cpf'] == cpf_str) & (df_reais['eleicao'] == eleicao_str) & (df_reais['direito'] == direito_val)]
                     if not match.empty:
-                        ja_existia = True
+                        ja_existia_no_banco = True
                 
-                if ja_existia:
+                if ja_existia_no_banco:
+                    # Se já existia, apenas sincroniza a atualização do saldo, nunca cria uma linha nova duplicada!
                     supabase.table("declaracoes").update({"saldo": saldo_val}).eq("cpf", cpf_str).eq("eleicao", eleicao_str).eq("direito", direito_val).execute()
                 else:
                     lista_para_inserir.append({
@@ -113,10 +115,11 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                         "direito": direito_val,
                         "saldo": saldo_val
                     })
+            
             if lista_para_inserir:
                 supabase.table("declaracoes").insert(lista_para_inserir).execute()
 
-        # 2. SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS COM CONVERSÃO DE PADRÃO DE DATA)
+        # 2. SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
         if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
             res_folgas_reais = supabase.table("folgas_gozadas").select("cpf, data_gozo").execute()
             df_f_reais = pd.DataFrame(res_folgas_reais.data)
@@ -128,7 +131,6 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 if not f_txt or f_txt.lower() == 'nan':
                     f_txt = hoje_data.strftime("%d/%m/%Y")
                 
-                # TRANSLATOR DE DATA BR -> EUA (date do Supabase exige AAAA-MM-DD)
                 try:
                     data_formatada_eua = datetime.strptime(f_txt, "%d/%m/%Y").strftime("%Y-%m-%d")
                 except ValueError:
@@ -162,7 +164,7 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 
         return True
     except Exception as e:
-        st.error(f"Erro na sincronização das colunas de data: {e}")
+        st.error(f"Erro na sincronização das tabelas: {e}")
         return False
 # --- GERADORES DE PDF (REPORTLAB) ---
 def gerar_pdf_lista_geral(df_resumo):
@@ -182,7 +184,7 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    t = Table(table_data, colWidths=[110, 180, 60, 60, 60, 60])
+    t = Table(table_data, colWidths=[60, 90, 200, 50, 50, 50])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
@@ -241,7 +243,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     else:
         dados_tabela.append([Paragraph("Nenhum registro discriminado encontrado.", table_text), Paragraph("-", table_text), Paragraph("-", table_text)])
         
-    t_hist = Table(dados_tabela, colWidths=[240, 130, 130])
+    t_hist = Table(dados_tabela, colWidths=[200, 150, 150])
     t_hist.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
