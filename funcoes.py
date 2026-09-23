@@ -39,7 +39,7 @@ def inicializar_bancos():
             df_declaracoes = df_declaracoes.rename(columns={'cpf': 'CPF', 'eleicao': 'Eleicao', 'direito': 'Direito', 'saldo': 'Saldo'})
             df_declaracoes['Eleicao'] = df_declaracoes['Eleicao'].fillna('').astype(str)
             
-            # --- SOLUÇÃO DO KEYERROR: Espelha o dado para a coluna esperada na aba Ajustes do app.py ---
+            # Espelha o dado para a coluna esperada na aba Ajustes do app.py
             df_declaracoes['Data_Eleicao'] = df_declaracoes['Eleicao']
             
             # Força a ordenação cronológica estrita PEPS
@@ -93,13 +93,11 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
 
         # 1. ATUALIZAÇÃO E SALVAMENTO DE DECLARAÇÕES (CRÉDITOS / SALDOS / AJUSTES)
         if isinstance(df_declaracoes, pd.DataFrame):
-            # Limpa para aplicar correções e remoções feitas na aba Ajustes do app.py
             supabase.table("declaracoes").delete().neq("cpf", "000").execute()
             
             if not df_declaracoes.empty:
                 lista_creditos = []
                 for idx, row in df_declaracoes.iterrows():
-                    # Captura o dado priorizando o nome que estiver preenchido de forma robusta
                     e_txt = str(row.get('Data_Eleicao', row.get('Eleicao', ''))).strip()
                     if not e_txt or e_txt.lower() == 'nan':
                         e_txt = hoje_str
@@ -173,7 +171,7 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    t = Table(table_data, colWidths=)
+    t = Table(table_data, colWidths=[100, 200, 80, 50, 50, 50])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
@@ -241,7 +239,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     else:
         dados_tabela.append([Paragraph("Nenhum registro discriminado encontrado.", table_text), Paragraph("-", table_text), Paragraph("-", table_text)])
         
-    t_hist = Table(dados_tabela, colWidths=)
+    t_hist = Table(dados_tabela, colWidths=[200, 150, 150])
     t_hist.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
@@ -259,5 +257,4 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     
     doc.build(story)
     return pdf_filename
-
 
