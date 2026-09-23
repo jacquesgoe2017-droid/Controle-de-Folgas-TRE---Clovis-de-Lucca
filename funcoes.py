@@ -18,6 +18,7 @@ def inicializar_bancos():
     """Carrega as tabelas do Supabase, remove os IDs e converte para DataFrames do Pandas"""
     try:
         supabase = inicializar_conexao()
+        st.cache_data.clear() # Força a limpeza de qualquer cache travado no navegador
         
         # 1. Carrega Servidores
         res_servidores = supabase.table("servidores").select("*").execute()
@@ -58,27 +59,27 @@ def inicializar_bancos():
             pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
         )
 
-# --- ADAPTADOR INTELIGENTE DE GRAVAÇÃO COMPATÍVEL ---
+# --- ADAPTADOR DE GRAVAÇÃO DIRETA SEM SOBREPOSIÇÃO ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
-    Sincroniza os estados exatos calculados pelo app.py diretamente na nuvem,
-    sem travas, agindo como um espelho direto da memória local.
+    Salva os dados de forma idêntica e direta, pegando exclusivamente os valores 
+    contidos dentro das tabelas do app.py, matando o erro do congelamento de datas.
     """
     try:
         supabase = inicializar_conexao()
-        hoje_data = date.today()
 
-        # 1. ATUALIZAÇÃO E SALVAMENTO DE DECLARAÇÕES (CRÉDITOS / SALDOS)
+        # 1. SALVAMENTO DE DECLARAÇÕES (CRÉDITOS)
         if isinstance(df_declaracoes, pd.DataFrame):
-            # Limpa e reconstrói de forma idêntica à tabela da tela
+            # Limpa o banco para sincronizar com os dados exatos calculados na tela
             supabase.table("declaracoes").delete().neq("cpf", "000").execute()
             
             if not df_declaracoes.empty:
                 lista_creditos = []
                 for idx, row in df_declaracoes.iterrows():
+                    # Captura estritamente o valor que o seu app.py guardou na coluna local
                     e_txt = str(row.get('Data_Eleicao', row.get('Eleicao', ''))).strip()
                     if not e_txt or e_txt.lower() == 'nan':
-                        e_txt = hoje_data.strftime("%d/%m/%Y")
+                        e_txt = date.today().strftime("%d/%m/%Y")
                         
                     lista_creditos.append({
                         "cpf": str(row['CPF']).strip(),
@@ -89,7 +90,7 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 if lista_creditos:
                     supabase.table("declaracoes").insert(lista_creditos).execute()
 
-        # 2. ATUALIZAÇÃO E SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
+        # 2. SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
         if isinstance(df_folgas, pd.DataFrame):
             supabase.table("folgas_gozadas").delete().neq("cpf", "000").execute()
             
@@ -98,7 +99,7 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 for idx, row in df_folgas.iterrows():
                     f_txt = str(row.get('Data_Folga', row.get('Data_Gozo', ''))).strip()
                     if not f_txt or f_txt.lower() == 'nan':
-                        f_txt = hoje_data.strftime("%d/%m/%Y")
+                        f_txt = date.today().strftime("%d/%m/%Y")
                         
                     lista_debitos.append({
                         "cpf": str(row['CPF']).strip(),
@@ -120,7 +121,7 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 
         return True
     except Exception as e:
-        st.error(f"Erro operacional de sincronização: {e}")
+        st.error(f"Erro operacional de gravação: {e}")
         return False
 # --- GERADORES DE PDF (REPORTLAB) ---
 def gerar_pdf_lista_geral(df_resumo):
@@ -140,7 +141,7 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    t = Table(table_data, colWidths=[90, 200, 60, 60, 60, 60])
+    t = Table(table_data, colWidths=[100, 180, 60, 60, 60, 60])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
