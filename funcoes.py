@@ -5,7 +5,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
-from datetime import datetime
+from datetime import datetime, date
 import os
 
 # --- CONEXÃO COM O SUPABASE ---
@@ -15,7 +15,7 @@ def inicializar_conexao():
 
 # --- INICIALIZAR BANCOS (CARREGAR DO SUPABASE) ---
 def inicializar_bancos():
-    """Carrega as tabelas do Supabase, remove IDs de controle e converte para DataFrames do Pandas"""
+    """Carrega as tabelas do Supabase, garante nomes de colunas e limpa dados nulos"""
     try:
         supabase = inicializar_conexao()
         
@@ -36,6 +36,7 @@ def inicializar_bancos():
             if 'id' in df_declaracoes.columns:
                 df_declaracoes = df_declaracoes.drop(columns=['id'])
             df_declaracoes = df_declaracoes.rename(columns={'cpf': 'CPF', 'eleicao': 'Eleicao', 'direito': 'Direito', 'saldo': 'Saldo'})
+            df_declaracoes['Eleicao'] = df_declaracoes['Eleicao'].fillna('').astype(str)
             
         # 3. Carrega Folgas Gozadas (Débitos)
         res_folgas = supabase.table("folgas_gozadas").select("*").execute()
@@ -57,16 +58,89 @@ def inicializar_bancos():
             pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
         )
 
-# --- ADAPTADOR INTELIGENTE CORRIGIDO ---
+# --- ADAPTADOR INTELIGENTE CORRIGIDO (SALVAMENTO COMPATÍVEL) ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
-    Salva diretamente os novos registros no Supabase permitindo múltiplos lançamentos
-    idênticos para o mesmo funcionário na mesma eleição de forma incremental.
+    Intercipta as ações do app.py, valida datas futuras, processa a gravação
+    no Supabase e faz o abatimento automático dos saldos de folga.
     """
     try:
         supabase = inicializar_conexao()
+        hoje = date.today()
         
-        # 1. SALVAMENTO DE SERVIDORES
+        # 1. PROCESSAMENTO DE FOLGAS GOZADAS (DÉBITOS) COM VALIDAÇÕES CRÍTICAS
+        if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
+            res_banco_f = supabase.table("folgas_gozadas").select("cpf").execute()
+            total_banco_f = len(res_banco_f.data)
+            
+            if len(df_folgas) > total_banco_f:
+                linha_nova_f = df_folgas.iloc[-1]
+                data_gozo_str = str(linha_nova_f['Data_Gozo']).strip()
+                
+                # Converte e valida estritamente se a data do gozo está no futuro
+                try:
+                    data_gozo_obj = datetime.strptime(data_gozo_str, "%Y-%m-%d").date()
+                except ValueError:
+                    data_gozo_obj = hoje
+                    
+                if data_gozo_obj > hoje:
+                    st.error(f"⚠️ Erro de Lançamento: Não é permitido registrar folgas em datas futuras ({data_gozo_str}).")
+                    return False
+                
+                cpf_alvo = str(linha_nova_f['CPF']).strip()
+                qtd_descontar = int(linha_nova_f['Quantidade'])
+                
+                # Grava o débito da folga na nuvem
+                dados_debito = {"cpf": cpf_alvo, "data_gozo": data_gozo_str, "quantidade": qtd_descontar}
+                supabase.table("folgas_gozadas").insert(dados_debito).execute()
+                
+                # Executa o abatimento automático do saldo nas declarações ativas do funcionário
+                res_creditos = supabase.table("declaracoes").select("id, saldo").eq("cpf", cpf_alvo).gt("saldo", 0).order("id").execute()
+                if res_creditos.data:
+                    for credito in res_creditos.data:
+                        if qtd_descontar <= 0:
+                            break
+                        id_credito = credito['id']
+                        saldo_atual = int(credito['saldo'])
+                        
+                        if saldo_atual >= qtd_descontar:
+                            novo_saldo = saldo_atual - qtd_descontar
+                            qtd_descontar = 0
+                        else:
+                            qtd_descontar -= saldo_atual
+                            novo_saldo = 0
+                            
+                        supabase.table("declaracoes").update({"saldo": novo_saldo}).eq("id", id_credito).execute()
+                return True
+
+        # 2. PROCESSAMENTO DE DECLARAÇÕES (CRÉDITOS)
+        if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
+            res_banco = supabase.table("declaracoes").select("cpf").execute()
+            total_banco = len(res_banco.data)
+            
+            if len(df_declaracoes) > total_banco:
+                linha_nova = df_declaracoes.iloc[-1]
+                
+                # Tenta capturar o nome exato digitado no formulário mapeando variáveis comuns do app.py
+                txt_eleicao = str(linha_nova['Eleicao']).strip()
+                if not txt_eleicao or txt_eleicao.lower() == 'nan':
+                    if 'eleicao_nome' in st.session_state:
+                        txt_eleicao = str(st.session_state.eleicao_nome).strip()
+                    elif 'nome_eleicao' in st.session_state:
+                        txt_eleicao = str(st.session_state.nome_eleicao).strip()
+                    else:
+                        txt_eleicao = f"Convocação - {hoje.strftime('%d/%m/%Y')}"
+                
+                dados_credito = {
+                    "cpf": str(linha_nova['CPF']).strip(),
+                    "eleicao": txt_eleicao,
+                    "direito": int(linha_nova['Direito']),
+                    "saldo": int(linha_nova['Saldo'])
+                }
+                supabase.table("declaracoes").insert(dados_credito).execute()
+                return True
+
+        # 3. SALVAMENTO E ATUALIZAÇÃO DE SERVIDORES
         if isinstance(df_servidores, pd.DataFrame) and not df_servidores.empty:
             for idx, row in df_servidores.iterrows():
                 dados_servidor = {
@@ -75,44 +149,10 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                     "status": str(row['Status']).strip()
                 }
                 supabase.table("servidores").upsert(dados_servidor, on_conflict="cpf").execute()
-        
-        # 2. SALVAMENTO DE DECLARAÇÕES (CRÉDITOS)
-        if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
-            res_banco = supabase.table("declaracoes").select("cpf").execute()
-            total_banco = len(res_banco.data)
-            total_app = len(df_declaracoes)
-            
-            # CORREÇÃO DA VARIÁVEL: Identifica e salva estritamente as linhas recém-adicionadas no fim
-            if total_app > total_banco:
-                linhas_novas = df_declaracoes.tail(total_app - total_banco)
-                for idx, row in linhas_novas.iterrows():
-                    dados_credito = {
-                        "cpf": str(row['CPF']).strip(),
-                        "eleicao": str(row['Eleicao']).strip(),
-                        "direito": int(row['Direito']),
-                        "saldo": int(row['Saldo'])
-                    }
-                    supabase.table("declaracoes").insert(dados_credito).execute()
-
-        # 3. SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
-        if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
-            res_banco_folgas = supabase.table("folgas_gozadas").select("cpf").execute()
-            total_banco_f = len(res_banco_folgas.data)
-            total_app_f = len(df_folgas)
-            
-            if total_app_f > total_banco_f:
-                linhas_novas_f = df_folgas.tail(total_app_f - total_banco_f)
-                for idx, row in linhas_novas_f.iterrows():
-                    dados_debito = {
-                        "cpf": str(row['CPF']).strip(),
-                        "data_gozo": str(row['Data_Gozo']).strip(),
-                        "quantidade": int(row['Quantidade'])
-                    }
-                    supabase.table("folgas_gozadas").insert(dados_debito).execute()
-                    
+                
         return True
     except Exception as e:
-        st.error(f"Erro ao salvar dados no Supabase: {e}")
+        st.error(f"Erro operacional no banco de dados: {e}")
         return False
 # --- GERADORES DE PDF (REPORTLAB) ---
 def gerar_pdf_lista_geral(df_resumo):
@@ -169,7 +209,6 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     story.append(Paragraph(texto, text_style))
     story.append(Spacer(1, 15))
     
-    # --- TABELA DE HISTÓRICO DISCRIMINADO ---
     story.append(Paragraph("<b>Histórico de Convocações / Eleições Cadastradas:</b>", text_style))
     story.append(Spacer(1, 5))
     
@@ -181,7 +220,6 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
             direito_val = r.get('Direito', r.get('direito', 0))
             saldo_val = r.get('Saldo', r.get('saldo', 0))
             
-            # Trata se o valor em si guardado no banco vier como string 'nan' ou vazio
             if str(eleicao_val).strip().lower() == 'nan' or not str(eleicao_val).strip():
                 eleicao_val = "Convocação Registrada"
                 
@@ -193,7 +231,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     else:
         dados_tabela.append([Paragraph("Nenhum registro discriminado encontrado.", table_text), Paragraph("-", table_text), Paragraph("-", table_text)])
         
-    t_hist = Table(dados_tabela, colWidths=[240, 130, 130])
+    t_hist = Table(dados_tabela, colWidths=)
     t_hist.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
