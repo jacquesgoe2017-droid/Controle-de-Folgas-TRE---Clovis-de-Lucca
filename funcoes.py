@@ -18,7 +18,7 @@ def inicializar_bancos():
     """Carrega as tabelas limpas do Supabase, matando qualquer cache travado no app.py"""
     try:
         supabase = inicializar_conexao()
-        st.cache_data.clear() # Limpa o cache para forçar o app.py a ler dados novos da nuvem
+        st.cache_data.clear()
         
         # 1. Carrega Servidores
         res_servidores = supabase.table("servidores").select("*").execute()
@@ -43,11 +43,12 @@ def inicializar_bancos():
         res_folgas = supabase.table("folgas_gozadas").select("*").execute()
         df_folgas = pd.DataFrame(res_folgas.data)
         if df_folgas.empty:
-            df_folgas = pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
+            df_folgas = pd.DataFrame(columns=["CPF", "Data_Folga", "Quantidade"])
         else:
             if 'id' in df_folgas.columns:
                 df_folgas = df_folgas.drop(columns=['id'])
-            df_folgas = df_folgas.rename(columns={'cpf': 'CPF', 'data_gozo': 'Data_Gozo', 'quantidade': 'Quantidade'})
+            # Mapeia como 'Data_Folga' para bater 100% com o seu app.py e somar no painel
+            df_folgas = df_folgas.rename(columns={'cpf': 'CPF', 'data_gozo': 'Data_Folga', 'quantidade': 'Quantidade'})
             
         return df_servidores, df_declaracoes, df_folgas
         
@@ -56,14 +57,14 @@ def inicializar_bancos():
         return (
             pd.DataFrame(columns=["CPF", "Nome", "Status"]),
             pd.DataFrame(columns=["CPF", "Eleicao", "Direito", "Saldo"]),
-            pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
+            pd.DataFrame(columns=["CPF", "Data_Folga", "Quantidade"])
         )
 
-# --- ADAPTADOR DE GRAVAÇÃO BLINDADO ---
+# --- ADAPTADOR DE GRAVAÇÃO DIRETA ALINHADO COM APP.PY ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
-    Salva os dados aplicando um filtro de inteligência: ignora duplicações fantasmas
-    geradas pelo recarregamento de tela do app.py e garante a consistência dos saldos.
+    Sincroniza os estados das tabelas locais diretamente no Supabase,
+    corrigindo os mapeamentos de nomes para computar o total usufruído.
     """
     try:
         supabase = inicializar_conexao()
@@ -71,7 +72,6 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
 
         # 1. ATUALIZAÇÃO E SALVAMENTO DE DECLARAÇÕES (CRÉDITOS / SALDOS)
         if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
-            # Baixa o histórico real que já estava na nuvem antes do clique atual
             res_reais = supabase.table("declaracoes").select("cpf, eleicao, direito, saldo").execute()
             df_reais = pd.DataFrame(res_reais.data)
             
@@ -85,9 +85,6 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 direito_val = int(row['Direito'])
                 saldo_val = int(row['Saldo'])
                 
-                # CHECAGEM DE DUPLICIDADE ANTIFANTASMA:
-                # Se a linha que o app.py quer salvar já existia no banco real com os mesmos dias conquistados,
-                # nós apenas atualizamos o Saldo dela (para processar a folga tirada), impedindo que crie uma nova linha duplicada!
                 ja_existia_no_banco = False
                 if not df_reais.empty:
                     match = df_reais[(df_reais['cpf'] == cpf_str) & (df_reais['eleicao'] == eleicao_str) & (df_reais['direito'] == direito_val)]
@@ -95,10 +92,8 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                         ja_existia_no_banco = True
                 
                 if ja_existia_no_banco:
-                    # Atualiza o saldo real daquela eleição específica (evita que o saldo fique errado na tela)
                     supabase.table("declaracoes").update({"saldo": saldo_val}).eq("cpf", cpf_str).eq("eleicao", eleicao_str).eq("direito", direito_val).execute()
                 else:
-                    # Se for um clique de gravação de crédito inédito de verdade, adiciona na lista para inserir
                     lista_para_inserir.append({
                         "cpf": cpf_str,
                         "eleicao": eleicao_str,
@@ -109,7 +104,7 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
             if lista_para_inserir:
                 supabase.table("declaracoes").insert(lista_para_inserir).execute()
 
-        # 2. ATUALIZAÇÃO E SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
+        # 2. ATUALIZAÇÃO E SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS CORRIGIDOS)
         if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
             res_folgas_reais = supabase.table("folgas_gozadas").select("cpf, data_gozo").execute()
             df_f_reais = pd.DataFrame(res_folgas_reais.data)
@@ -117,11 +112,11 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
             lista_folgas_novas = []
             for idx, row in df_folgas.iterrows():
                 cpf_str = str(row['CPF']).strip()
+                # Correção crítica: Captura por 'Data_Folga' (termo vindo do app.py) ou 'Data_Gozo'
                 f_txt = str(row.get('Data_Folga', row.get('Data_Gozo', ''))).strip()
                 if not f_txt or f_txt.lower() == 'nan':
                     f_txt = hoje_data.strftime("%d/%m/%Y")
                 
-                # Impede duplicações de folga causadas por múltiplos cliques ou recarregamento
                 ja_gravada = False
                 if not df_f_reais.empty:
                     ja_gravada = not df_f_reais[(df_f_reais['cpf'] == cpf_str) & (df_f_reais['data_gozo'] == f_txt)].empty
@@ -167,7 +162,7 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    t = Table(table_data, colWidths=[90, 200, 60, 90, 80, 90])
+    t = Table(table_data, colWidths=[90, 160, 65, 95, 85, 95])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
@@ -244,5 +239,3 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     
     doc.build(story)
     return pdf_filename
-
-
