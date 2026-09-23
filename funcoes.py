@@ -10,13 +10,9 @@ import os
 
 # --- CONEXÃO COM O SUPABASE ---
 def inicializar_conexao():
-    """Inicializa a conexão com o Supabase usando as chaves globais dos Secrets"""
-    return st.connection(
-        "supabase",
-        type=SupabaseConnection,
-        url=st.secrets["SUPABASE_URL"],
-        key=st.secrets["SUPABASE_KEY"]
-    )
+    """Inicializa a conexão automática com o Supabase utilizando os Secrets oficiais"""
+    return st.connection("supabase", type=SupabaseConnection)
+
 
 # --- INICIALIZAR BANCOS (CARREGAR DO SUPABASE) ---
 def inicializar_bancos():
