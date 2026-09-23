@@ -15,7 +15,7 @@ def inicializar_conexao():
 
 # --- INICIALIZAR BANCOS (CARREGAR DO SUPABASE) ---
 def inicializar_bancos():
-    """Carrega as tabelas limpas do Supabase, matando qualquer cache travado no app.py"""
+    """Carrega as tabelas limpas do Supabase e converte as datas americanas para o formato do app.py"""
     try:
         supabase = inicializar_conexao()
         st.cache_data.clear()
@@ -47,8 +47,21 @@ def inicializar_bancos():
         else:
             if 'id' in df_folgas.columns:
                 df_folgas = df_folgas.drop(columns=['id'])
-            # Mapeia como 'Data_Folga' para bater 100% com o seu app.py e somar no painel
-            df_folgas = df_folgas.rename(columns={'cpf': 'CPF', 'data_gozo': 'Data_Folga', 'quantidade': 'Quantidade'})
+                
+            # Converte a data do formato do banco (AAAA-MM-DD) de volta para texto brasileiro para o painel do app.py ler
+            lista_folgas_br = []
+            for _, item in df_folgas.iterrows():
+                dt_banco = str(item['data_gozo']).strip()
+                try:
+                    dt_br = datetime.strptime(dt_banco, "%Y-%m-%d").strftime("%d/%m/%Y")
+                except ValueError:
+                    dt_br = dt_banco
+                lista_folgas_br.append({
+                    "CPF": str(item['cpf']).strip(),
+                    "Data_Folga": dt_br,
+                    "Quantidade": int(item['quantidade'])
+                })
+            df_folgas = pd.DataFrame(lista_folgas_br)
             
         return df_servidores, df_declaracoes, df_folgas
         
@@ -60,17 +73,17 @@ def inicializar_bancos():
             pd.DataFrame(columns=["CPF", "Data_Folga", "Quantidade"])
         )
 
-# --- ADAPTADOR DE GRAVAÇÃO DIRETA ALINHADO COM APP.PY ---
+# --- ADAPTADOR DE GRAVAÇÃO COMPATÍVEL COM DATA TIPO 'DATE' ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
     """
-    Sincroniza os estados das tabelas locais diretamente no Supabase,
-    corrigindo os mapeamentos de nomes para computar o total usufruído.
+    Sincroniza as tabelas locais convertendo as strings brasileiras em datas
+    válidas do padrão internacional exigido pela coluna 'date' do Supabase.
     """
     try:
         supabase = inicializar_conexao()
         hoje_data = date.today()
 
-        # 1. ATUALIZAÇÃO E SALVAMENTO DE DECLARAÇÕES (CRÉDITOS / SALDOS)
+        # 1. SALVAMENTO DE DECLARAÇÕES (CRÉDITOS / SALDOS)
         if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
             res_reais = supabase.table("declaracoes").select("cpf, eleicao, direito, saldo").execute()
             df_reais = pd.DataFrame(res_reais.data)
@@ -85,13 +98,13 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 direito_val = int(row['Direito'])
                 saldo_val = int(row['Saldo'])
                 
-                ja_existia_no_banco = False
+                ja_existia = False
                 if not df_reais.empty:
                     match = df_reais[(df_reais['cpf'] == cpf_str) & (df_reais['eleicao'] == eleicao_str) & (df_reais['direito'] == direito_val)]
                     if not match.empty:
-                        ja_existia_no_banco = True
+                        ja_existia = True
                 
-                if ja_existia_no_banco:
+                if ja_existia:
                     supabase.table("declaracoes").update({"saldo": saldo_val}).eq("cpf", cpf_str).eq("eleicao", eleicao_str).eq("direito", direito_val).execute()
                 else:
                     lista_para_inserir.append({
@@ -100,11 +113,10 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                         "direito": direito_val,
                         "saldo": saldo_val
                     })
-            
             if lista_para_inserir:
                 supabase.table("declaracoes").insert(lista_para_inserir).execute()
 
-        # 2. ATUALIZAÇÃO E SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS CORRIGIDOS)
+        # 2. SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS COM CONVERSÃO DE PADRÃO DE DATA)
         if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
             res_folgas_reais = supabase.table("folgas_gozadas").select("cpf, data_gozo").execute()
             df_f_reais = pd.DataFrame(res_folgas_reais.data)
@@ -112,19 +124,27 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
             lista_folgas_novas = []
             for idx, row in df_folgas.iterrows():
                 cpf_str = str(row['CPF']).strip()
-                # Correção crítica: Captura por 'Data_Folga' (termo vindo do app.py) ou 'Data_Gozo'
                 f_txt = str(row.get('Data_Folga', row.get('Data_Gozo', ''))).strip()
                 if not f_txt or f_txt.lower() == 'nan':
                     f_txt = hoje_data.strftime("%d/%m/%Y")
                 
+                # TRANSLATOR DE DATA BR -> EUA (date do Supabase exige AAAA-MM-DD)
+                try:
+                    data_formatada_eua = datetime.strptime(f_txt, "%d/%m/%Y").strftime("%Y-%m-%d")
+                except ValueError:
+                    try:
+                        data_formatada_eua = datetime.strptime(f_txt, "%Y-%m-%d").strftime("%Y-%m-%d")
+                    except ValueError:
+                        data_formatada_eua = hoje_data.strftime("%Y-%m-%d")
+                
                 ja_gravada = False
                 if not df_f_reais.empty:
-                    ja_gravada = not df_f_reais[(df_f_reais['cpf'] == cpf_str) & (df_f_reais['data_gozo'] == f_txt)].empty
+                    ja_gravada = not df_f_reais[(df_f_reais['cpf'] == cpf_str) & (df_f_reais['data_gozo'] == data_formatada_eua)].empty
                 
                 if not ja_gravada:
                     lista_folgas_novas.append({
                         "cpf": cpf_str,
-                        "data_gozo": f_txt,
+                        "data_gozo": data_formatada_eua,
                         "quantidade": 1
                     })
             if lista_folgas_novas:
@@ -142,7 +162,7 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 
         return True
     except Exception as e:
-        st.error(f"Erro na sincronização de segurança: {e}")
+        st.error(f"Erro na sincronização das colunas de data: {e}")
         return False
 # --- GERADORES DE PDF (REPORTLAB) ---
 def gerar_pdf_lista_geral(df_resumo):
@@ -162,7 +182,7 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    t = Table(table_data, colWidths=[90, 160, 65, 95, 85, 95])
+    t = Table(table_data, colWidths=[110, 180, 60, 60, 60, 60])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
@@ -239,5 +259,4 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     
     doc.build(story)
     return pdf_filename
-
 
