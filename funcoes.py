@@ -15,7 +15,7 @@ def inicializar_conexao():
 
 # --- INICIALIZAR BANCOS (CARREGAR DO SUPABASE) ---
 def inicializar_bancos():
-    """Carrega as tabelas limpas do Supabase e converte as datas americanas para o formato do app.py"""
+    """Carrega as tabelas e garante a ordenação cronológica estrita por data da Eleição (PEPS)"""
     try:
         supabase = inicializar_conexao()
         st.cache_data.clear()
@@ -38,6 +38,15 @@ def inicializar_bancos():
                 df_declaracoes = df_declaracoes.drop(columns=['id'])
             df_declaracoes = df_declaracoes.rename(columns={'cpf': 'CPF', 'eleicao': 'Eleicao', 'direito': 'Direito', 'saldo': 'Saldo'})
             df_declaracoes['Eleicao'] = df_declaracoes['Eleicao'].fillna('').astype(str)
+            
+            # --- FORÇAR ORDENAÇÃO CRONOLÓGICA PEPS PELA DATA DA ELEIÇÃO ---
+            try:
+                # Cria uma coluna temporária em formato datetime para ordenar de forma justa e cronológica
+                df_declaracoes['dt_temp'] = pd.to_datetime(df_declaracoes['Eleicao'], format='%d/%m/%Y', errors='coerce')
+                df_declaracoes = df_declaracoes.sort_values(by='dt_temp', ascending=True).drop(columns=['dt_temp'])
+            except Exception:
+                pass
+            df_declaracoes = df_declaracoes.reset_index(drop=True)
             
         # 3. Carrega Folgas Gozadas (Débitos)
         res_folgas = supabase.table("folgas_gozadas").select("*").execute()
@@ -72,17 +81,15 @@ def inicializar_bancos():
             pd.DataFrame(columns=["CPF", "Data_Folga", "Quantidade"])
         )
 
-# --- ADAPTADOR DE GRAVAÇÃO BLINDADO ---
+# --- ADAPTADOR DE GRAVAÇÃO COMPATÍVEL ---
 def salvar_dados(df_servidores, df_declaracoes, df_folgas):
-    """
-    Sincroniza os dados impedindo cliques fantasmas da data de hoje padrão 
-    de entrarem como créditos fantasmas sem o consentimento do operador.
-    """
+    """Sincroniza as tabelas mantendo as correções e ordenações tratadas pelo app.py"""
     try:
         supabase = inicializar_conexao()
-        hoje_str = date.today().strftime("%d/%m/%Y")
+        hoje_data = date.today()
+        hoje_str = hoje_data.strftime("%d/%m/%Y")
 
-        # 1. ATUALIZAÇÃO E SALVAMENTO DE DECLARAÇÕES (CRÉDITOS / SALDOS)
+        # 1. ATUALIZAÇÃO E SALVAMENTO DE DECLARAÇÕES
         if isinstance(df_declaracoes, pd.DataFrame) and not df_declaracoes.empty:
             res_reais = supabase.table("declaracoes").select("cpf, eleicao, direito, saldo").execute()
             df_reais = pd.DataFrame(res_reais.data)
@@ -91,35 +98,27 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 cpf_str = str(row['CPF']).strip()
                 eleicao_str = str(row.get('Data_Eleicao', row.get('Eleicao', ''))).strip()
                 
-                # --- TRAVA ANTI-CLIQUE FANTASMA ---
-                # Se o sistema tentar enviar a data de hoje pura de fundo sem você ter digitado, o código aborta a linha intrusa
                 if eleicao_str == hoje_str and len(df_declaracoes) > 1 and idx == (len(df_declaracoes) - 1):
                     continue
-                
                 if not eleicao_str or eleicao_str.lower() == 'nan':
                     continue
                 
                 direito_val = int(row['Direito'])
                 saldo_val = int(row['Saldo'])
                 
-                ja_existe_no_banco = False
+                ja_existe = False
                 if not df_reais.empty:
                     match = df_reais[(df_reais['cpf'] == cpf_str) & (df_reais['eleicao'] == eleicao_str) & (df_reais['direito'] == direito_val)]
                     if not match.empty:
-                        ja_existe_no_banco = True
+                        ja_existe = True
                 
-                if ja_existe_no_banco:
+                if ja_existe:
                     supabase.table("declaracoes").update({"saldo": saldo_val}).eq("cpf", cpf_str).eq("eleicao", eleicao_str).eq("direito", direito_val).execute()
                 else:
-                    dados_novos = {
-                        "cpf": cpf_str,
-                        "eleicao": eleicao_str,
-                        "direito": direito_val,
-                        "saldo": saldo_val
-                    }
+                    dados_novos = {"cpf": cpf_str, "eleicao": eleicao_str, "direito": direito_val, "saldo": saldo_val}
                     supabase.table("declaracoes").insert(dados_novos).execute()
 
-        # 2. ATUALIZAÇÃO E SALVAMENTO DE FOLGAS GOZADAS (DÉBITOS)
+        # 2. ATUALIZAÇÃO E SALVAMENTO DE FOLGAS GOZADAS
         if isinstance(df_folgas, pd.DataFrame) and not df_folgas.empty:
             res_folgas_reais = supabase.table("folgas_gozadas").select("cpf, data_gozo").execute()
             df_f_reais = pd.DataFrame(res_folgas_reais.data)
@@ -128,7 +127,7 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 cpf_str = str(row['CPF']).strip()
                 f_txt = str(row.get('Data_Folga', row.get('Data_Gozo', ''))).strip()
                 if not f_txt or f_txt.lower() == 'nan':
-                    f_txt = date.today().strftime("%d/%m/%Y")
+                    f_txt = hoje_data.strftime("%d/%m/%Y")
                 
                 try:
                     data_formatada_eua = datetime.strptime(f_txt, "%d/%m/%Y").strftime("%Y-%m-%d")
@@ -136,18 +135,14 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                     try:
                         data_formatada_eua = datetime.strptime(f_txt, "%Y-%m-%d").strftime("%Y-%m-%d")
                     except ValueError:
-                        data_formatada_eua = date.today().strftime("%Y-%m-%d")
+                        data_formatada_eua = hoje_data.strftime("%Y-%m-%d")
                 
                 ja_gravada = False
                 if not df_f_reais.empty:
                     ja_gravada = not df_f_reais[(df_f_reais['cpf'] == cpf_str) & (df_f_reais['data_gozo'] == data_formatada_eua)].empty
                 
                 if not ja_gravada:
-                    dados_folga = {
-                        "cpf": cpf_str,
-                        "data_gozo": data_formatada_eua,
-                        "quantidade": 1
-                    }
+                    dados_folga = {"cpf": cpf_str, "data_gozo": data_formatada_eua, "quantidade": 1}
                     supabase.table("folgas_gozadas").insert(dados_folga).execute()
 
         # 3. SALVAMENTO E ATUALIZAÇÃO DE SERVIDORES
@@ -162,7 +157,7 @@ def salvar_dados(df_servidores, df_declaracoes, df_folgas):
                 
         return True
     except Exception as e:
-        st.error(f"Erro na filtragem de segurança: {e}")
+        st.error(f"Erro na sincronização de dados: {e}")
         return False
 # --- GERADORES DE PDF (REPORTLAB) ---
 def gerar_pdf_lista_geral(df_resumo):
@@ -182,7 +177,7 @@ def gerar_pdf_lista_geral(df_resumo):
     for idx, row in df_resumo.iterrows():
         table_data.append([Paragraph(str(item), normal_center) for item in row])
         
-    t = Table(table_data, colWidths=[40, 95, 180, 50, 65, 55, 55])
+    t = Table(table_data, colWidths=[90, 200, 60, 60, 60, 60])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
@@ -219,14 +214,25 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     story.append(Paragraph(texto, text_style))
     story.append(Spacer(1, 15))
     
-    story.append(Paragraph("<b>Histórico de Convocações / Eleições Cadastradas:</b>", text_style))
+    story.append(Paragraph("<b>Histórico de Convocações / Eleições Cadastradas (Ordem Cronológica):</b>", text_style))
     story.append(Spacer(1, 5))
     
     dados_tabela = [[Paragraph("<b>Data da Eleição / Convocação</b>", table_text), Paragraph("<b>Dias Conquistados</b>", table_text), Paragraph("<b>Saldo Atual</b>", table_text)]]
     
     if isinstance(historico, pd.DataFrame) and not historico.empty:
-        for _, r in historico.iterrows():
-            eleicao_val = r.get('Eleicao', r.get('Data_Eleicao', 'Convocação Registrada'))
+        df_ordenado_pdf = historico.copy()
+        # Padroniza nomes de colunas temporariamente para garantir a conversão
+        df_ordenado_pdf = df_ordenado_pdf.rename(columns={'eleicao': 'Eleicao', 'direito': 'Direito', 'saldo': 'Saldo', 'Data_Eleicao': 'Eleicao'})
+        
+        # --- FORÇA A ORDENAÇÃO CRONOLÓGICA CRÍTICA DE CIMA PARA BAIXO NO RELATÓRIO PDF ---
+        try:
+            df_ordenado_pdf['dt_ordem'] = pd.to_datetime(df_ordenado_pdf['Eleicao'], format='%d/%m/%Y', errors='coerce')
+            df_ordenado_pdf = df_ordenado_pdf.sort_values(by='dt_ordem', ascending=True).drop(columns=['dt_ordem'])
+        except Exception:
+            pass
+            
+        for _, r in df_ordenado_pdf.iterrows():
+            eleicao_val = r.get('Eleicao', 'Convocação Registrada')
             direito_val = r.get('Direito', 0)
             saldo_val = r.get('Saldo', 0)
             
@@ -241,7 +247,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     else:
         dados_tabela.append([Paragraph("Nenhum registro discriminado encontrado.", table_text), Paragraph("-", table_text), Paragraph("-", table_text)])
         
-    t_hist = Table(dados_tabela, colWidths=[260, 120, 120])
+    t_hist = Table(dados_tabela, colWidths=[200, 150, 150])
     t_hist.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
