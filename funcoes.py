@@ -23,31 +23,34 @@ def inicializar_bancos():
         res_servidores = supabase.table("servidores").select("*").execute()
         df_servidores = pd.DataFrame(res_servidores.data)
         if df_servidores.empty:
-            df_servidores = pd.DataFrame(columns=["cpf", "nome", "status"])
+            df_servidores = pd.DataFrame(columns=["CPF", "Nome", "Status"])
         else:
-            # Padroniza os nomes das colunas em maiúsculo para compatibilidade com o seu app.py
-            df_servidores.columns = ['CPF', 'Nome', 'Status']
+            # Renomeia para garantir compatibilidade com as maiúsculas do app.py
+            df_servidores = df_servidores.rename(columns={
+                'cpf': 'CPF', 'nome': 'Nome', 'status': 'Status'
+            })
             
         # 2. Carrega Declarações (Créditos)
         res_declaracoes = supabase.table("declaracoes").select("*").execute()
         df_declaracoes = pd.DataFrame(res_declaracoes.data)
         if df_declaracoes.empty:
-            df_declaracoes = pd.DataFrame(columns=["id", "cpf", "eleicao", "direito", "saldo"])
-        
-        # Ajusta maiúsculas/minúsculas para bater com o app.py antigo
-        df_declaracoes = df_declaracoes.rename(columns={
-            'cpf': 'CPF', 'eleicao': 'Eleicao', 'direito': 'Direito', 'saldo': 'Saldo'
-        })
+            df_declaracoes = pd.DataFrame(columns=["CPF", "Eleicao", "Direito", "Saldo"])
+        else:
+            # Renomeia para garantir compatibilidade com as maiúsculas do app.py
+            df_declaracoes = df_declaracoes.rename(columns={
+                'cpf': 'CPF', 'eleicao': 'Eleicao', 'direito': 'Direito', 'saldo': 'Saldo'
+            })
             
         # 3. Carrega Folgas Gozadas (Débitos)
         res_folgas = supabase.table("folgas_gozadas").select("*").execute()
         df_folgas = pd.DataFrame(res_folgas.data)
         if df_folgas.empty:
-            df_folgas = pd.DataFrame(columns=["id", "cpf", "data_gozo", "quantidade"])
-            
-        df_folgas = df_folgas.rename(columns={
-            'cpf': 'CPF', 'data_gozo': 'Data_Gozo', 'quantidade': 'Quantidade'
-        })
+            df_folgas = pd.DataFrame(columns=["CPF", "Data_Gozo", "Quantidade"])
+        else:
+            # Renomeia para garantir compatibilidade com as maiúsculas do app.py
+            df_folgas = df_folgas.rename(columns={
+                'cpf': 'CPF', 'data_gozo': 'Data_Gozo', 'quantidade': 'Quantidade'
+            })
             
         return df_servidores, df_declaracoes, df_folgas
         
@@ -68,7 +71,7 @@ def salvar_dados(*args, **kwargs):
     try:
         supabase = inicializar_conexao()
         
-        # Verifica se o app.py enviou dados pelos formulários através do st.session_state ou variáveis de contexto
+        # Verifica se o app.py enviou dados pelos formulários através do st.session_state
         # Buscando dados do cadastro de Servidor
         if 'novo_cpf' in st.session_state and st.session_state.novo_cpf:
             dados = {
@@ -86,7 +89,7 @@ def salvar_dados(*args, **kwargs):
                 "cpf": str(st.session_state.decl_cpf).strip(),
                 "eleicao": str(st.session_state.decl_eleicao).strip(),
                 "direito": int(st.session_state.decl_direito),
-                "saldo": int(st.session_state.decl_direito) # Inicialmente o saldo é igual ao direito conquistado
+                "saldo": int(st.session_state.decl_direito)
             }
             supabase.table("declaracoes").insert(dados).execute()
             st.success("Declaração de crédito salva permanentemente no Supabase!")
@@ -104,7 +107,6 @@ def salvar_dados(*args, **kwargs):
             return True
             
         else:
-            # Caso o app use nomes diferentes de variáveis nas outras abas
             st.warning("Formulário enviado, mas as variáveis de salvamento precisam ser mapeadas.")
             return False
             
@@ -162,7 +164,7 @@ def gerar_pdf_certidao(nome, cpf, saldo, historico, emissor, cargo):
     for eng, pt in meses.items():
         data_hoje = data_hoje.replace(eng, pt)
         
-    texto = f"Declaramos para os devidos fins de direito e controle interno, que o(a) servidor(a) <b>{nome}</b>, inscrito(a) no CPF sob o nº <b>{cpf}</b>, conta atualmente com um saldo remanescente de <b>{saldo} dia(s)</b> de folga gerada(s) por services prestados à Justiça Eleitoral (TRE), estando apto(a) a usufruí-lo(s) mediante prévia anuência da direção escolar."
+    texto = f"Declaramos para os devidos fins de direito e controle interno, que o(a) servidor(a) <b>{nome}</b>, inscrito(a) no CPF sob o nº <b>{cpf}</b>, conta atualmente com um saldo remanescente de <b>{saldo} dia(s)</b> de folga gerada(s) por serviços prestados à Justiça Eleitoral (TRE), estando apto(a) a usufruí-lo(s) mediante prévia anuência da direção escolar."
     story.append(Paragraph(texto, text_style))
     story.append(Spacer(1, 40))
     
